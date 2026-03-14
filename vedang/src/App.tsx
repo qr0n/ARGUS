@@ -6,6 +6,7 @@ import { FindMatches } from './pages/FindMatches';
 import { LiveCamera } from './pages/LiveCamera';
 import { ActivityLog } from './pages/ActivityLog';
 import { CaseProfiles } from './pages/CaseProfiles';
+import { AIAging } from './pages/AIAging';
 import { OnboardingOverlay } from './components/OnboardingOverlay';
 import { useState } from 'react';
 
@@ -23,6 +24,7 @@ function App() {
           <Route path="live-camera" element={<LiveCamera />} />
           <Route path="activity-log" element={<ActivityLog />} />
           <Route path="case-profiles" element={<CaseProfiles />} />
+          <Route path="ai-aging" element={<AIAging />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -85,9 +85,9 @@
 
 .timeline-step {
     display: flex;
-    gap: 24px;
+    gap: 16px;
     position: relative;
-    padding-bottom: 32px;
+    padding-bottom: 20px;
 }
 
 .timeline-step:last-child {

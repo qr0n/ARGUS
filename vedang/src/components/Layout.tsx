@@ -10,6 +10,7 @@ const pageInfo: Record<string, { title: string, subtitle: string }> = {
     '/live-camera': { title: 'Live Camera', subtitle: 'Real-time feed analysis' },
     '/activity-log': { title: 'System Activity Log', subtitle: 'Audit trail of recent events' },
     '/case-profiles': { title: 'Case Profiles', subtitle: 'Manage investigative profiles' },
+    '/ai-aging': { title: 'AI Aging Detection', subtitle: 'Simulate suspect aging progressions' },
 };
 
 export function Layout() {

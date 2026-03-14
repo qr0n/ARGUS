@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Bell, LayoutDashboard, Search as SearchIcon, Camera, Activity, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bell, LayoutDashboard, Search as SearchIcon, Camera, Activity, FileText, ChevronLeft, ChevronRight, UserCircle } from 'lucide-react';
 import './Layout.css';
 
 export function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean, setCollapsed: (val: boolean) => void }) {
@@ -10,13 +10,13 @@ export function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean, setCo
     { label: 'Live Camera', icon: <Camera size={20} />, path: '/live-camera' },
     { label: 'Activity Log', icon: <Activity size={20} />, path: '/activity-log' },
     { label: 'Case Profiles', icon: <FileText size={20} />, path: '/case-profiles' },
+    { label: 'AI Aging', icon: <UserCircle size={20} />, path: '/ai-aging' },
   ];
 
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : 'expanded'}`}>
       <div className="sidebar-header">
         <h1 className="brand-title">{collapsed ? 'A' : 'ARGUS'}</h1>
-        {!collapsed && <p className="brand-subtitle">Autonomous Recognition & Geo-Unified Surveillance</p>}
       </div>
 
       <nav className="sidebar-nav">
