@@ -154,12 +154,25 @@
       }
       
       try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facingMode },
-          audio: false
-        });
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+           throw new Error("Local Media API missing. Are you using HTTPS/Self-Signed correctly?");
+        }
+        
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: facingMode } },
+            audio: false
+          });
+        } catch (e) {
+          console.warn("Fallback to generic camera:", e);
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        }
         
         video.srcObject = localStream;
+        await video.play().catch(e => console.error("Play error:", e));
         modeLabel.textContent = facingMode === 'environment' ? 'Rear Camera Active' : 'Front Camera Active';
         
         startBtn.style.display = 'none';
@@ -168,12 +181,14 @@
         if (pc) {
           // Replace track without renegotiating if possible
           const videoTrack = localStream.getVideoTracks()[0];
-          const sender = pc.getSenders().find(s => s.track.kind === videoTrack.kind);
+          const sender = pc.getSenders().find(s => s.track && s.track.kind === videoTrack.kind);
           if (sender) sender.replaceTrack(videoTrack);
         } else if (viewerWaiting) {
           createPeerConnection();
         }
       } catch (err) {
+        modeLabel.textContent = 'Camera error: ' + err.message;
+        modeLabel.style.color = '#ef4444';
         alert('Camera error: ' + err.message);
       }
     }
