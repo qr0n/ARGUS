@@ -1,0 +1,59 @@
+.activity-log-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.log-card {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    padding: 0;
+    overflow: hidden;
+}
+
+.log-header {
+    display: flex;
+    padding: 16px 24px;
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 12px;
+    color: var(--text-tertiary);
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+.log-col-time {
+    width: 150px;
+    flex-shrink: 0;
+}
+
+.log-col-activity {
+    flex: 1;
+}
+
+.log-table-body {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.log-row {
+    display: flex;
+    padding: 16px 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+    transition: background 0.2s;
+}
+
+.log-row:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.log-row .log-col-time {
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.log-row .log-col-activity {
+    color: var(--text-primary);
+    font-size: 13px;
+}
