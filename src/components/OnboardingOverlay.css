@@ -1,0 +1,137 @@
+.onboarding-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(10px);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.onboarding-modal {
+    background: var(--bg-card);
+    border: 1px solid rgba(59, 180, 242, 0.3);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 600px;
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    animation: modalEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalEnter {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.onboarding-header {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.onboarding-logo-icon {
+    color: var(--accent);
+}
+
+.onboarding-header h2 {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 28px;
+    letter-spacing: 2px;
+    color: var(--text-primary);
+}
+
+.onboarding-header p {
+    margin: 0;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+.timeline-container {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    padding-left: 16px;
+}
+
+.timeline-container::before {
+    content: '';
+    position: absolute;
+    left: 32px;
+    top: 16px;
+    bottom: 16px;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.timeline-step {
+    display: flex;
+    gap: 24px;
+    position: relative;
+    padding-bottom: 32px;
+}
+
+.timeline-step:last-child {
+    padding-bottom: 0px;
+}
+
+.step-node {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 2px solid var(--accent);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+}
+
+.step-content {
+    flex: 1;
+    padding-top: 6px;
+}
+
+.step-content h4 {
+    margin: 0 0 8px 0;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.step-content p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.enter-btn {
+    width: 100%;
+    padding: 16px;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    font-family: var(--font-mono);
+    margin-top: 16px;
+}
