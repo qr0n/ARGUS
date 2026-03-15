@@ -61,6 +61,7 @@
     font-family: var(--font-mono);
     letter-spacing: 0.5px;
     text-transform: uppercase;
+    height: 40px;
 }
 
 .hiw-desc {
