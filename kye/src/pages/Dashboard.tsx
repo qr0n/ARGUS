@@ -11,7 +11,10 @@ export function Dashboard() {
     return (
         <div className="dashboard">
             <div className="dashboard-header">
-                <h3 className="dashboard-datetime">{dateString} | {timeString}</h3>
+                <div className="dashboard-datetime">
+                    <span className="dashboard-date mono">{dateString}</span>
+                    <span className="dashboard-time mono">{timeString}</span>
+                </div>
             </div>
 
             <div className="dashboard-grid">

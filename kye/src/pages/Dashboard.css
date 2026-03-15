@@ -11,12 +11,23 @@
 }
 
 .dashboard-datetime {
-    font-family: var(--font-mono);
-    color: var(--text-secondary);
-    font-size: 14px;
-    font-weight: 500;
-    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dashboard-date {
+    font-size: 18px;
+    color: var(--text-tertiary);
     text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 500;
+}
+
+.dashboard-time {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-primary);
     letter-spacing: 1px;
 }
 
