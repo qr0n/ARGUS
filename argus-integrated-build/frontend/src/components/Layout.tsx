@@ -13,7 +13,7 @@ const pageInfo: Record<string, { title: string, subtitle: string }> = {
     '/ai-aging': { title: 'AI Aging Detection', subtitle: 'Simulate suspect aging progressions' },
 };
 
-export function Layout() {
+export function Layout({ onShowOnboarding }: { onShowOnboarding: () => void }) {
     const [collapsed, setCollapsed] = useState(false);
     const location = useLocation();
     const currentInfo = pageInfo[location.pathname] || { title: 'ARGUS', subtitle: '' };
@@ -22,7 +22,7 @@ export function Layout() {
         <div className="app-layout">
             <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
             <div className="main-area">
-                <TopBar title={currentInfo.title} subtitle={currentInfo.subtitle} />
+                <TopBar title={currentInfo.title} subtitle={currentInfo.subtitle} onShowOnboarding={onShowOnboarding} />
                 <main className="page-content">
                     <Outlet />
                 </main>

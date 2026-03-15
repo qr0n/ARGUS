@@ -34,10 +34,12 @@
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    padding: 6px 16px;
+    padding: 4px 10px;
     border-radius: 4px;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
     cursor: pointer;
     transition: all 0.2s;
 }
@@ -61,10 +63,17 @@
 
 .alert-full-card {
     display: flex;
-    gap: 24px;
-    align-items: center;
+    flex-direction: column;
+    gap: 16px;
+    padding: 28px;
     position: relative;
     overflow: hidden;
+}
+
+.alert-top-row {
+    display: flex;
+    align-items: center;
+    gap: 24px;
 }
 
 .alert-full-card::before {
@@ -134,9 +143,9 @@
 }
 
 .alert-full-confidence {
-    flex: 1;
     display: flex;
     flex-direction: column;
+    align-items: flex-end;
     gap: 8px;
 }
 
@@ -156,19 +165,25 @@
 
 .alert-full-actions {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
+    align-items: center;
     gap: 12px;
-    min-width: 250px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 12px;
 }
 
 .status-badge {
     font-size: 10px;
+    align-self: flex-end;
 }
 
 .action-btns {
     display: flex;
     gap: 8px;
+    width: 100%;
+}
+
+.action-btns .btn {
+    flex: 1;
 }
 
 .btn-action-verify {

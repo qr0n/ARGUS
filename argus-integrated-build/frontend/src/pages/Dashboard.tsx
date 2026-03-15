@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, CheckCircle2, Search, Camera, Users, Clock } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ScanFace, Camera, Briefcase, Clock } from 'lucide-react';
 import './Dashboard.css';
 
 export function Dashboard() {
     const [recentLogs, setRecentLogs] = useState<{time: string, activity: string, type?: string, severity?: string}[]>([]);
     const [alertsCount, setAlertsCount] = useState(0);
     const [datasetLength, setDatasetLength] = useState(0);
-    const [activeCases, setActiveCases] = useState<{name: string, status: string, severity: string}[]>([]);
+    const [datasetFiles, setDatasetFiles] = useState<string[]>([]);
+    const [activeCases, setActiveCases] = useState<{name: string, status: string, severity: string, filename: string}[]>([]);
     
     useEffect(() => {
         fetch('/api/logs')
@@ -20,14 +21,16 @@ export function Dashboard() {
 
         fetch('/dataset')
             .then(res => res.json())
-            .then(data => {
+            .then((data: string[]) => {
+                setDatasetFiles(data);
                 setDatasetLength(data.length);
                 const cases = data.slice(0, 4).map((filename: string, i: number) => {
                     const name = filename.replace(/\.[^.]+$/, '').replace(/_[0-9]+$/, '').replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
                     return {
                         name,
-                        status: i % 2 === 0 ? 'Surveillance Active' : 'Missing',
-                        severity: i === 0 ? 'High Priority' : 'Standard'
+                        status: i % 2 === 0 ? 'Wanted' : 'Missing',
+                        severity: i === 0 || i === 2 ? 'High Priority' : 'Standard Priority',
+                        filename
                     };
                 });
                 setActiveCases(cases);
@@ -42,28 +45,31 @@ export function Dashboard() {
     return (
         <div className="dashboard">
             <div className="dashboard-header">
-                <h3 className="dashboard-datetime">{dateString} | {timeString}</h3>
+                <div className="dashboard-datetime">
+                    <span className="dashboard-date mono">{dateString}</span>
+                    <span className="dashboard-time mono">{timeString}</span>
+                </div>
             </div>
 
             <div className="dashboard-grid">
                 {/* Left Column - Stats */}
                 <div className="stats-column">
                     <div className="stat-card">
-                        <div className="stat-icon"><AlertTriangle color="var(--status-amber)" size={24} /></div>
+                        <div className="stat-icon"><AlertTriangle color="var(--status-red)" size={24} /></div>
                         <div className="stat-info">
                             <span className="stat-value">{alertsCount}</span>
                             <span className="stat-label">Active Alerts</span>
                         </div>
                     </div>
                     <div className="stat-card">
-                        <div className="stat-icon"><Users color="var(--status-blue)" size={24} /></div>
+                        <div className="stat-icon"><Briefcase color="var(--status-amber)" size={24} /></div>
                         <div className="stat-info">
                             <span className="stat-value">{datasetLength}</span>
                             <span className="stat-label">Case Profiles</span>
                         </div>
                     </div>
                     <div className="stat-card">
-                        <div className="stat-icon"><Camera color="var(--status-green)" size={24} /></div>
+                        <div className="stat-icon"><Camera color="var(--accent)" size={24} /></div>
                         <div className="stat-info">
                             <span className="stat-value">1</span>
                             <span className="stat-label">Active Cameras</span>
@@ -81,6 +87,32 @@ export function Dashboard() {
                             <span className="stat-label">Recognition Latency</span>
                             <span className="stat-value mono latency-value">84ms</span>
                         </div>
+                    </div>
+
+                    {/* Active Cases */}
+                    <div className="card active-cases-card" style={{ gridColumn: '1 / -1' }}>
+                        <div className="card-header">
+                            <h4>Active Cases</h4>
+                        </div>
+                        <div className="cases-grid">
+                            {activeCases.length > 0 ? activeCases.map((ac, i) => (
+                                <div key={i} className="mini-case-card">
+                                    <div className="case-avatar" style={{ background: 'var(--bg-card-hover)', border: '1px solid var(--border)' }}>
+                                        <img src={`/dataset/${ac.filename}`} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '4px' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                    </div>
+                                    <div className="case-info">
+                                        <span className="case-name">{ac.name}</span>
+                                        <div className="case-tags">
+                                            <span className={`badge ${ac.status === 'Missing' ? 'badge-amber' : 'badge-red'}`} style={{ opacity: 0.9 }}>{ac.status.toUpperCase()}</span>
+                                            <span className={`badge ${ac.severity === 'High Priority' ? 'badge-red' : 'badge-blue'}`}>{ac.severity.toUpperCase()}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )) : (
+                                <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)' }}>No active cases found.</div>
+                            )}
+                        </div>
+                        <a href="/case-profiles" className="btn btn-full" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}>View All Cases</a>
                     </div>
                 </div>
 
@@ -101,21 +133,21 @@ export function Dashboard() {
                                 </div>
                             </div>
                             <div className="module-item">
-                                <Clock className="module-icon" color="var(--status-amber)" size={24} />
+                                <Clock className="module-icon" color="var(--accent)" size={24} />
                                 <div className="module-info">
                                     <span className="module-name">AI Aging</span>
                                     <span className="module-status badge badge-green mono">READY</span>
                                 </div>
                             </div>
                             <div className="module-item">
-                                <Search className="module-icon" color="var(--status-blue)" size={24} />
+                                <ScanFace className="module-icon" color="var(--accent)" size={24} />
                                 <div className="module-info">
                                     <span className="module-name">Face Matcher</span>
                                     <span className="module-status badge badge-green mono">READY</span>
                                 </div>
                             </div>
                             <div className="module-item">
-                                <Users className="module-icon" color="var(--text-tertiary)" size={24} />
+                                <Briefcase className="module-icon" color="var(--accent)" size={24} />
                                 <div className="module-info">
                                     <span className="module-name">Case Profiles</span>
                                     <span className="module-status badge badge-green mono">SYNCED</span>
@@ -124,25 +156,46 @@ export function Dashboard() {
                         </div>
                     </div>
 
+
+
                     {/* Recent Alerts (from Logs) */}
                     <div className="card recent-alerts-card">
                         <div className="card-header" style={{ marginBottom: '12px' }}>
                             <h4>Recent Alerts</h4>
-                            <span className="badge badge-red">{alertsCount} UNREVIEWED</span>
+                            <span className="badge badge-red">{alertsCount} NEW</span>
                         </div>
                         <div className="alert-list">
                             {recentLogs.length > 0 ? recentLogs.map((log, i) => {
-                                const cleanActivity = log.activity.length > 28 ? log.activity.substring(0, 28) + '...' : log.activity;
+                                let cleanActivity = log.activity;
+                                if (cleanActivity.includes(':')) {
+                                    cleanActivity = cleanActivity.split(':')[1].trim();
+                                }
+                                
+                                let subjectName = '';
+                                const nameMatch = log.activity.match(/—\s+([A-Z0-9\s_]+?)\s*\(/i) || log.activity.match(/Match Detected[\s:-—]+([A-Z0-9\s_]+?)\s*\(/i);
+                                if (nameMatch) {
+                                    subjectName = nameMatch[1].trim().toLowerCase();
+                                }
+                                
+                                let imageSrc: string | undefined = undefined;
+                                if (subjectName && datasetFiles.length > 0) {
+                                    const file = datasetFiles.find(f => f.toLowerCase().startsWith(subjectName));
+                                    if (file) imageSrc = `/dataset/${file}`;
+                                }
+
                                 return (
                                 <div key={i} className="alert-row">
-                                    <div className="alert-avatar" style={{ background: 'var(--bg-card-hover)', border: '1px solid var(--border)' }}></div>
+                                    <div className="alert-avatar" style={{ background: 'var(--bg-card-hover)', border: '1px solid var(--border)' }}>
+                                        {imageSrc && (
+                                            <img src={imageSrc} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '4px' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                        )}
+                                    </div>
                                     <div className="alert-details">
                                         <span className="alert-name" style={{ fontSize: '12px' }}>{cleanActivity}</span>
                                         <span className="badge badge-blue mono" style={{ marginTop: '4px' }}>{log.type ? log.type.toUpperCase() : 'SYSTEM LOG'}</span>
                                     </div>
                                     <div className="alert-meta">
                                         <span className="badge badge-amber mono">{log.time}</span>
-                                        {log.severity && <span className={`badge ${log.severity === 'warning' ? 'badge-red' : 'badge-amber'}`}>{log.severity}</span>}
                                     </div>
                                 </div>
                                 );
@@ -151,30 +204,6 @@ export function Dashboard() {
                             )}
                         </div>
                         <a href="/alerts" className="btn btn-full" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}>Review All Alerts</a>
-                    </div>
-
-                    {/* Active Cases */}
-                    <div className="card active-cases-card">
-                        <div className="card-header">
-                            <h4>Active Cases</h4>
-                        </div>
-                        <div className="cases-grid">
-                            {activeCases.length > 0 ? activeCases.map((ac, i) => (
-                                <div key={i} className="mini-case-card">
-                                    <div className="case-avatar" style={{ background: 'var(--bg-card-hover)', border: '1px solid var(--border)' }}></div>
-                                    <div className="case-info">
-                                        <span className="case-name">{ac.name}</span>
-                                        <div className="case-tags">
-                                            <span className="badge badge-amber">{ac.status}</span>
-                                            {ac.severity === 'High Priority' && <span className="badge badge-red">{ac.severity}</span>}
-                                        </div>
-                                    </div>
-                                </div>
-                            )) : (
-                                <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: 'var(--text-tertiary)' }}>No active cases found.</div>
-                            )}
-                        </div>
-                        <a href="/case-profiles" className="btn btn-full" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}>View All Cases</a>
                     </div>
                 </div>
             </div>

@@ -15,6 +15,7 @@ export function Alerts() {
     const [alerts, setAlerts] = useState<LogEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'unreviewed' | 'verified' | 'dismissed'>('unreviewed');
+    const [datasetFiles, setDatasetFiles] = useState<string[]>([]);
     
     const fetchAlerts = () => {
         fetch('/api/logs')
@@ -29,6 +30,11 @@ export function Alerts() {
                 console.error("Failed to fetch alerts", err);
                 setLoading(false);
             });
+            
+        fetch('/dataset')
+            .then(res => res.json())
+            .then((data: string[]) => setDatasetFiles(data))
+            .catch(() => {});
     };
 
     useEffect(() => {
@@ -71,25 +77,43 @@ export function Alerts() {
                     const conf = confMatch ? confMatch[1] : null;
                     const cleanActivity = alert.activity;
                     
+                    let subjectName = '';
+                    const nameMatch = alert.activity.match(/—\s+([A-Z0-9\s_]+?)\s*\(/i) || alert.activity.match(/Match Detected[\s:-—]+([A-Z0-9\s_]+?)\s*\(/i);
+                    if (nameMatch) {
+                        subjectName = nameMatch[1].trim().toLowerCase();
+                    }
+                    
+                    let imageSrc: string | undefined = undefined;
+                    if (subjectName && datasetFiles.length > 0) {
+                        const file = datasetFiles.find(f => f.toLowerCase().startsWith(subjectName));
+                        imageSrc = file ? `/dataset/${file}` : `/dataset/${subjectName}.jpg`;
+                    } else if (subjectName) {
+                        imageSrc = `/dataset/${subjectName}.jpg`;
+                    }
+                    
                     return (
                         <div key={alert.id || alert.time} className="card alert-full-card">
-                            <div className="alert-full-avatar">
-                                <span className={`online-dot ${alert.status === 'dismissed' ? 'offline' : ''}`}></span>
-                            </div>
+                            <span className={`badge status-badge ${filter === 'unreviewed' ? 'badge-red' : filter === 'verified' ? 'badge-green' : 'badge-blue'}`}>
+                                {filter.toUpperCase()}
+                            </span>
 
-                            <div className="alert-full-info">
-                                <div className="afi-header">
-                                    <h3 className="afi-name">{cleanActivity}</h3>
-                                    <div className="afi-tags">
-                                        <span className={`badge ${alert.severity === 'warning' ? 'badge-amber' : 'badge-red'}`}>
-                                            {alert.severity === 'warning' ? 'Attention' : 'High Priority'}
-                                        </span>
-                                    </div>
+                            <div className="alert-top-row">
+                                <div className="alert-full-avatar">
+                                    {imageSrc && (
+                                        <img src={imageSrc} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                    )}
+                                    <span className={`online-dot ${alert.status === 'dismissed' ? 'offline' : ''}`}></span>
                                 </div>
-                                <div className="afi-meta mono">
-                                    <span className="afi-time">{alert.time}</span>
-                                    <span className="afi-divider">|</span>
-                                    <span className="afi-source">AT: {alert.type ? alert.type.toUpperCase() : 'SYSTEM'}</span>
+
+                                <div className="alert-full-info">
+                                    <div className="afi-header">
+                                        <h3 className="afi-name">{cleanActivity}</h3>
+                                    </div>
+                                    <div className="afi-meta mono">
+                                        <span className="afi-time">{alert.time}</span>
+                                        <span className="afi-divider">|</span>
+                                        <span className="afi-source">AT: {alert.type ? alert.type.toUpperCase() : 'SYSTEM'}</span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -103,13 +127,10 @@ export function Alerts() {
                             )}
 
                             <div className="alert-full-actions">
-                                <span className={`badge status-badge ${filter === 'unreviewed' ? 'badge-red' : filter === 'verified' ? 'badge-green' : 'badge-blue'}`}>
-                                    {filter.toUpperCase()}
-                                </span>
                                 {(alert.status || 'unreviewed') === 'unreviewed' && (
                                     <div className="action-btns">
                                         <button className="btn btn-action-verify" onClick={() => updateStatus(alert.id!, 'verified')}>
-                                            <Check size={16} /> Verify
+                                            <Check size={16} /> Verify Identified Match
                                         </button>
                                         <button className="btn btn-danger" onClick={() => updateStatus(alert.id!, 'dismissed')}>
                                             <X size={16} /> Dismiss

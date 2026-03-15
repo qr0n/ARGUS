@@ -24,7 +24,7 @@ function App() {
     <BrowserRouter>
       {showOnboarding && <OnboardingOverlay onDismiss={handleDismiss} />}
       <Routes>
-        <Route path="/" element={<Layout />}>
+        <Route path="/" element={<Layout onShowOnboarding={() => setShowOnboarding(true)} />}>
           <Route index element={<Dashboard />} />
           <Route path="alerts" element={<Alerts />} />
           <Route path="find-matches" element={<FindMatches />} />

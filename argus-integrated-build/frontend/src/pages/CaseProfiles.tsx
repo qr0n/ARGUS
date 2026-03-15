@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Search, Plus, Trash2, UploadCloud, Loader2, RefreshCw } from 'lucide-react';
+import { Search, Plus, UploadCloud, Loader2, RefreshCw, MapPin, Calendar, AlertCircle } from 'lucide-react';
 import './CaseProfiles.css';
 
 const SERVER = ''; // Using Vite proxy to avoid strict SSL issues
@@ -18,21 +18,34 @@ function toDisplayName(filename: string): string {
     .replace(/\b\w/g, c => c.toUpperCase()); // Title Case
 }
 
+const getMockData = (name: string) => {
+  const val = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return {
+      isResolved: val % 2 === 0,
+      isMissing: val % 3 === 0,
+      age: 20 + (val % 35),
+      firstSeenLoc: val % 3 === 0 ? 'Downtown Hub, Kingston' : 'Portmore, JM',
+      lastSeenLoc: val % 2 === 0 ? 'Kingston, JM' : 'Montego Bay, JM',
+      dateSubmitted: `2024-${String((val % 12) + 1).padStart(2, '0')}-${String((val % 28) + 1).padStart(2, '0')}`,
+      priority: val % 4 === 0 ? 'Low' : (val % 2 === 0 ? 'Medium' : 'High')
+  };
+};
+
 export function CaseProfiles() {
   const [profiles, setProfiles] = useState<DatasetProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [serverError, setServerError] = useState(false);
   const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState('All');
 
   const [showModal, setShowModal] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<DatasetProfile | null>(null);
   const [subjectName, setSubjectName] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
-
-  const [deletingFile, setDeletingFile] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -99,7 +112,6 @@ export function CaseProfiles() {
 
   const handleDelete = async (filename: string) => {
     if (!confirm(`Remove "${toDisplayName(filename)}" from the dataset?`)) return;
-    setDeletingFile(filename);
     try {
       await fetch(`${SERVER}/dataset/${filename}`, { method: 'DELETE' });
       setProfiles(prev => prev.filter(p => p.filename !== filename));
@@ -114,12 +126,22 @@ export function CaseProfiles() {
       } catch (err) { console.error("Failed to log activity", err); }
       
     } catch {}
-    setDeletingFile(null);
   };
 
-  const filtered = profiles.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = profiles.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
+    if (!matchesSearch) return false;
+    
+    if (activeTab === 'All') return true;
+    
+    const mock = getMockData(p.name);
+    // Simple mock logic for filtering
+    if (activeTab === 'Resolved' && mock.isResolved) return true;
+    if (activeTab === 'Missing' && mock.isMissing && !mock.isResolved) return true;
+    if (activeTab === 'Wanted' && !mock.isMissing && !mock.isResolved) return true;
+    
+    return false;
+  });
 
   return (
     <div className="case-profiles-page">
@@ -135,16 +157,25 @@ export function CaseProfiles() {
           />
         </div>
 
-        <div className="filter-tabs">
-          <button className="tab active">Dataset ({profiles.length})</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <button className="btn cp-refresh-btn" onClick={fetchProfiles} title="Refresh">
+              <RefreshCw size={16} />
+            </button>
+            <div className="filter-tabs">
+                {['All', 'Missing', 'Wanted', 'Resolved'].map(tab => (
+                    <button
+                        key={tab}
+                        className={`tab ${activeTab === tab ? 'active' : ''}`}
+                        onClick={() => setActiveTab(tab)}
+                    >
+                        {tab}
+                    </button>
+                ))}
+            </div>
         </div>
 
-        <button className="btn cp-refresh-btn" onClick={fetchProfiles} title="Refresh">
-          <RefreshCw size={16} />
-        </button>
-
         <button className="btn btn-primary cp-create-btn" onClick={() => { setShowModal(true); setUploadError(''); }}>
-          <Plus size={18} /> Add to Dataset
+          <Plus size={18} /> Create Case Profile
         </button>
       </div>
 
@@ -184,19 +215,20 @@ export function CaseProfiles() {
             <div key={profile.filename} className="card cp-card">
               <div className="cp-card-header">
                 <div className="cp-tags">
-                  <span className="badge badge-green">Dataset Entry</span>
+                  {(() => {
+                    const mock = getMockData(profile.name);
+                    return (
+                        <>
+                            <span className={`badge ${mock.isResolved ? 'badge-green' : 'badge-amber'}`}>
+                                {mock.isResolved ? 'Resolved' : 'Unresolved'}
+                            </span>
+                            <span className={`badge ${mock.isMissing ? 'badge-amber' : 'badge-red'}`}>
+                                {mock.isMissing ? 'Missing' : 'Wanted'}
+                            </span>
+                        </>
+                    );
+                  })()}
                 </div>
-                <button
-                  className="btn cp-delete-btn"
-                  title="Remove from dataset"
-                  onClick={() => handleDelete(profile.filename)}
-                  disabled={deletingFile === profile.filename}
-                >
-                  {deletingFile === profile.filename
-                    ? <Loader2 className="spin" size={14} />
-                    : <Trash2 size={14} />
-                  }
-                </button>
               </div>
 
               <div className="cp-card-body">
@@ -207,7 +239,16 @@ export function CaseProfiles() {
                 <div className="cp-info">
                   <h4 className="cp-name">{profile.name}</h4>
                   <div className="cp-details-list">
-                    <span className="cp-detail-item mono" style={{ fontSize: 11, opacity: 0.55 }}>{profile.filename}</span>
+                    {(() => {
+                       const mock = getMockData(profile.name);
+                       return (
+                          <>
+                              <span className="cp-detail-item" style={{display: 'flex', alignItems: 'center', gap: '6px'}}><Calendar size={12} /> Age: {mock.age}</span>
+                              <span className="cp-detail-item" style={{display: 'flex', alignItems: 'center', gap: '6px'}}><MapPin size={12} /> Last Seen at: {mock.lastSeenLoc}</span>
+                              <span className="cp-detail-item highlight" style={{display: 'flex', alignItems: 'center', gap: '6px'}}><AlertCircle size={12} /> Priority: {mock.priority}</span>
+                          </>
+                       );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -215,7 +256,7 @@ export function CaseProfiles() {
               <div className="cp-card-footer">
                 <button
                   className="btn btn-full"
-                  onClick={() => setSelectedProfile(profile)}
+                  onClick={() => { setSelectedProfile(profile); setShowEdit(false); }}
                 >
                   View Case Details
                 </button>
@@ -281,36 +322,53 @@ export function CaseProfiles() {
         </div>
       )}
 
-      {/* Case Details Modal */}
-      {selectedProfile && (
+      {/* Case Details View/Edit Modals */}
+      {selectedProfile && !showEdit && (
         <div className="modal-overlay" onClick={() => setSelectedProfile(null)}>
           <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-flex">
               <h3 className="modal-title">Case Profile Details</h3>
               <div className="cp-tags">
-                  <span className="badge badge-green">Dataset Entry</span>
+                <span className={`badge ${getMockData(selectedProfile.name).isResolved ? 'badge-green' : 'badge-amber'}`}>
+                    {getMockData(selectedProfile.name).isResolved ? 'Resolved' : 'Unresolved'}
+                </span>
+                <span className={`badge ${getMockData(selectedProfile.name).isMissing ? 'badge-amber' : 'badge-red'}`}>
+                    {getMockData(selectedProfile.name).isMissing ? 'Missing' : 'Wanted'}
+                </span>
               </div>
             </div>
             <div className="modal-body-split">
-              <div className="modal-photo" style={{ backgroundImage: `url(${selectedProfile.src})`, backgroundSize: 'cover', backgroundPosition: 'center', height: '200px', width: '200px', borderRadius: '8px' }}></div>
-              <div className="modal-info-grid">
-                <div className="info-block">
-                  <span className="info-label mono">FULL NAME</span>
-                  <span className="info-val">{selectedProfile.name}</span>
+              <div style={{ flex: 1.5, display: 'flex', minHeight: '400px' }}>
+                <div className="modal-photo" style={{ backgroundImage: `url(${selectedProfile.src})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', width: '100%', height: '100%', borderRadius: '8px' }}></div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '20px' }}>
+                <div className="modal-info-grid">
+                  <div className="info-block">
+                    <span className="info-label mono">FULL NAME</span>
+                    <span className="info-val">{selectedProfile.name}</span>
+                  </div>
+                  <div className="info-block">
+                    <span className="info-label mono">DATE SUBMITTED</span>
+                    <span className="info-val">{getMockData(selectedProfile.name).dateSubmitted}</span>
+                  </div>
+                  <div className="info-block">
+                    <span className="info-label mono">PRIORITY</span>
+                    <span className="info-val highlight">{getMockData(selectedProfile.name).priority} Priority</span>
+                  </div>
+                  <div className="info-block">
+                    <span className="info-label mono">FIRST SEEN AT</span>
+                    <span className="info-val">{getMockData(selectedProfile.name).firstSeenLoc}</span>
+                  </div>
+                  <div className="info-block">
+                    <span className="info-label mono">LAST SEEN AT</span>
+                    <span className="info-val">{getMockData(selectedProfile.name).lastSeenLoc}</span>
+                  </div>
                 </div>
-                <div className="info-block">
-                  <span className="info-label mono">FILENAME</span>
-                  <span className="info-val">{selectedProfile.filename}</span>
-                </div>
-                <div className="info-block">
-                  <span className="info-label mono">STATUS</span>
-                  <span className="info-val highlight">Active in Dataset</span>
+                <div className="info-block full-width">
+                  <span className="info-label mono">NOTES / DESCRIPTION</span>
+                  <p className="info-val text-muted">Subject was last seen heading near {getMockData(selectedProfile.name).lastSeenLoc}. Internal system actively tracking {selectedProfile.name} alongside dataset filename: <span className="mono">{selectedProfile.filename}</span></p>
                 </div>
               </div>
-            </div>
-            <div className="info-block full-width" style={{ marginTop: '20px' }}>
-              <span className="info-label mono">NOTES / DESCRIPTION</span>
-              <p className="info-val text-muted">This profile is part of the facial recognition dataset. The system uses this image to detect and identify <b>{selectedProfile.name}</b> in live camera streams.</p>
             </div>
             <div className="modal-actions spread" style={{ marginTop: '20px' }}>
               <button className="btn btn-danger" onClick={() => {
@@ -319,10 +377,85 @@ export function CaseProfiles() {
               }}>Remove Profile</button>
               <div>
                 <button className="btn" style={{ marginRight: '12px' }} onClick={() => setSelectedProfile(null)}>Close</button>
-                <a className="btn btn-primary" href={selectedProfile.src} target="_blank" rel="noreferrer">
-                  Open Full Image
-                </a>
+                <button className="btn btn-primary" onClick={() => setShowEdit(true)}>
+                  Update Details
+                </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedProfile && showEdit && (
+        <div className="modal-overlay" onClick={() => setShowEdit(false)}>
+          <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-flex">
+              <h3 className="modal-title">Edit Case Profile</h3>
+              <div className="cp-tags">
+                <span className={`badge ${getMockData(selectedProfile.name).isResolved ? 'badge-green' : 'badge-amber'}`}>
+                    {getMockData(selectedProfile.name).isResolved ? 'Resolved' : 'Unresolved'}
+                </span>
+                <span className={`badge ${getMockData(selectedProfile.name).isMissing ? 'badge-amber' : 'badge-red'}`}>
+                    {getMockData(selectedProfile.name).isMissing ? 'Missing' : 'Wanted'}
+                </span>
+              </div>
+            </div>
+            <div className="modal-body-split">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1.5 }}>
+                  <div className="modal-photo" style={{ backgroundImage: `url(${selectedProfile.src})`, backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center', width: '100%', flex: 1, minHeight: '400px', borderRadius: '8px' }}></div>
+                  <div className="modal-upload full-width" style={{ marginTop: 0, padding: '16px' }}>
+                      <p style={{marginBottom: 0}}>Update Photo</p>
+                      <button className="btn" style={{width: '100%'}}>Browse File</button>
+                  </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '20px' }}>
+                <div className="modal-info-grid">
+                  <div className="info-block">
+                    <span className="info-label mono">FULL NAME</span>
+                    <input className="input-field" defaultValue={selectedProfile.name} />
+                  </div>
+                  <div className="info-block">
+                    <span className="info-label mono">DATE SUBMITTED</span>
+                    <input className="input-field" defaultValue={getMockData(selectedProfile.name).dateSubmitted} type="text" />
+                  </div>
+                  <div className="info-block">
+                    <span className="info-label mono">STATUS</span>
+                    <select className="input-field select-field" defaultValue={getMockData(selectedProfile.name).isMissing ? 'missing' : 'wanted'}>
+                        <option value="missing">Missing Person</option>
+                        <option value="wanted">Wanted Person</option>
+                    </select>
+                  </div>
+                  <div className="info-block">
+                    <span className="info-label mono">PRIORITY</span>
+                    <select className="input-field select-field" defaultValue={getMockData(selectedProfile.name).priority.toLowerCase()}>
+                        <option value="high">High Priority</option>
+                        <option value="medium">Medium Priority</option>
+                        <option value="low">Low Priority</option>
+                    </select>
+                  </div>
+                </div>
+              
+                <div className="modal-info-grid">
+                    <div className="info-block full-width">
+                        <span className="info-label mono">FIRST SEEN AT</span>
+                        <input className="input-field" defaultValue={getMockData(selectedProfile.name).firstSeenLoc} />
+                    </div>
+                    <div className="info-block full-width">
+                        <span className="info-label mono">LAST SEEN AT</span>
+                        <input className="input-field" defaultValue={getMockData(selectedProfile.name).lastSeenLoc} />
+                    </div>
+                </div>
+
+                <div className="info-block full-width">
+                  <span className="info-label mono">NOTES / DESCRIPTION</span>
+                  <textarea className="input-field text-area" defaultValue={`Subject was last seen heading near ${getMockData(selectedProfile.name).lastSeenLoc}. Internal system actively tracking ${selectedProfile.name} alongside dataset filename: ${selectedProfile.filename}`} rows={3}></textarea>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: '20px' }}>
+              <button className="btn" onClick={() => setShowEdit(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => setShowEdit(false)}>Save Changes</button>
             </div>
           </div>
         </div>

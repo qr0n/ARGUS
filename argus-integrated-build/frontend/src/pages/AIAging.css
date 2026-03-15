@@ -37,18 +37,18 @@
 
 .steps-row {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
 }
 
 .hiw-step {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
   background: rgba(0,0,0,0.2);
-  padding: 12px 24px;
+  padding: 16px 20px;
   border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.04);
   flex: 1;
   transition: all 0.3s ease;
 }
@@ -58,42 +58,54 @@
   background: rgba(59, 180, 242, 0.05);
 }
 
-.hiw-step.active-step .hiw-icon {
+.hiw-num {
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 700;
   color: var(--accent);
-  filter: drop-shadow(0 0 8px rgba(59, 180, 242, 0.5));
-}
-
-.hiw-icon {
-  color: var(--text-tertiary);
-  transition: all 0.3s ease;
+  opacity: 0.25;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+  align-self: center;
 }
 
 .hiw-text {
   display: flex;
   flex-direction: column;
+  gap: 4px;
 }
 
-.hiw-num {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-tertiary);
+.hiw-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 1px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  height: 40px;
 }
 
-.hiw-text span:last-child {
-  font-size: 14px;
-  font-weight: 500;
+.hiw-desc {
+  font-size: 12px;
   color: var(--text-secondary);
+  line-height: 1.4;
+  max-width: 160px;
 }
 
-.hiw-step.active-step .hiw-text span:last-child {
-  color: var(--text-primary);
+.hiw-step.active-step .hiw-title {
+  color: var(--accent);
+  filter: drop-shadow(0 0 8px rgba(59, 180, 242, 0.3));
 }
 
 .hiw-arrow {
   color: var(--text-tertiary);
   margin: 0 16px;
+  align-self: center;
 }
 
 /* Upload & Results Cards */

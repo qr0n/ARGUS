@@ -169,34 +169,34 @@ export function FindMatches() {
                 <h4>How It Works</h4>
                 <div className="steps-row">
                     <div className="hiw-step">
-                        <div className="hiw-icon"><UploadCloud size={20} /></div>
+                        <span className="hiw-num">1</span>
                         <div className="hiw-text">
-                            <span className="hiw-num">1</span>
-                            <span>Upload Image</span>
+                            <span className="hiw-title"><UploadCloud size={24} /> UPLOAD</span>
+                            <span className="hiw-desc">Drop image or browse and select image</span>
                         </div>
                     </div>
                     <ChevronRight className="hiw-arrow" />
                     <div className="hiw-step">
-                        <div className="hiw-icon"><FileSearch size={20} /></div>
+                        <span className="hiw-num">2</span>
                         <div className="hiw-text">
-                            <span className="hiw-num">2</span>
-                            <span>Image Scan</span>
+                            <span className="hiw-title"><FileSearch size={24} /> IMAGE SCAN</span>
+                            <span className="hiw-desc">AI locates and extracts faces from the image</span>
                         </div>
                     </div>
                     <ChevronRight className="hiw-arrow" />
                     <div className="hiw-step">
-                        <div className="hiw-icon"><Activity size={20} /></div>
+                        <span className="hiw-num">3</span>
                         <div className="hiw-text">
-                            <span className="hiw-num">3</span>
-                            <span>Compare AI Data</span>
+                            <span className="hiw-title"><Activity size={24} /> COMPARE</span>
+                            <span className="hiw-desc">AI compares the detected face against existing faces to assess similarity</span>
                         </div>
                     </div>
                     <ChevronRight className="hiw-arrow" />
                     <div className="hiw-step">
-                        <div className="hiw-icon"><CheckCircle2 size={20} /></div>
+                        <span className="hiw-num">4</span>
                         <div className="hiw-text">
-                            <span className="hiw-num">4</span>
-                            <span>Review Matches</span>
+                            <span className="hiw-title"><CheckCircle2 size={28} /> REVIEW MATCHES</span>
+                            <span className="hiw-desc">Top matches returned for human verification</span>
                         </div>
                     </div>
                 </div>

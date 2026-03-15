@@ -1,7 +1,7 @@
-import { Bell, Search } from 'lucide-react';
+import { Bell, Search, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-export function TopBar({ title, subtitle }: { title: string, subtitle: string }) {
+export function TopBar({ title, subtitle, onShowOnboarding }: { title: string, subtitle: string, onShowOnboarding: () => void }) {
     const navigate = useNavigate();
 
     return (
@@ -12,6 +12,9 @@ export function TopBar({ title, subtitle }: { title: string, subtitle: string })
             </div>
 
             <div className="topbar-center">
+                <button className="topbar-info-btn" onClick={onShowOnboarding}>
+                    <Info size={16} /> How To Use
+                </button>
                 <button className="topbar-alert-btn" onClick={() => navigate('/alerts')} title="View Alerts">
                     <Bell size={20} />
                     <span className="alert-red-dot"></span>

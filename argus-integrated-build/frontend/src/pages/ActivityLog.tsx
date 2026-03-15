@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Clock, Activity } from 'lucide-react';
 import './ActivityLog.css';
 
 export function ActivityLog() {
@@ -22,8 +23,14 @@ export function ActivityLog() {
                 <div className="log-table-body">
                     {logs.map((log, i) => (
                         <div key={i} className="log-row">
-                            <div className="log-col-time mono">{log.time}</div>
-                            <div className="log-col-activity mono">{log.activity}</div>
+                            <div className="log-col-time mono" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Clock size={14} color="var(--text-tertiary)" />
+                                {log.time}
+                            </div>
+                            <div className="log-col-activity mono" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Activity size={14} color="var(--accent)" />
+                                {log.activity}
+                            </div>
                         </div>
                     ))}
                     {logs.length === 0 && (
