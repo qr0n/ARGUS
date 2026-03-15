@@ -1,12 +1,13 @@
 import './OnboardingOverlay.css';
-import { ShieldCheck, Camera, Search, Activity, Clock } from 'lucide-react';
+import { Camera, Search, Activity, Clock } from 'lucide-react';
+import argusLogo from '../assets/argus_logo_light.png';
 
 export function OnboardingOverlay({ onDismiss }: { onDismiss: () => void }) {
     return (
         <div className="onboarding-overlay">
             <div className="onboarding-modal">
                 <div className="onboarding-header">
-                    <ShieldCheck className="onboarding-logo-icon" size={48} />
+                    <img src={argusLogo} alt="ARGUS Logo" className="onboarding-logo-img" />
                     <h2>Welcome to ARGUS</h2>
                     <p>Autonomous Recognition & Geo-Unified Surveillance System</p>
                 </div>

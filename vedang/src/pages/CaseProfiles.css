@@ -70,12 +70,85 @@
 
 .cp-card-header {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .cp-tags {
     display: flex;
     gap: 8px;
+}
+
+/* Delete button inside card header */
+.cp-delete-btn {
+    background: transparent;
+    border: 1px solid rgba(255, 80, 80, 0.3);
+    color: rgba(255,80,80,0.7);
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: all 0.15s ease;
+}
+
+.cp-delete-btn:hover {
+    background: rgba(255, 80, 80, 0.12);
+    color: #ff5050;
+    border-color: #ff5050;
+}
+
+.cp-delete-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Refresh button */
+.cp-refresh-btn {
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+.cp-refresh-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* Empty/Loading/Error states */
+.cp-state-msg {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 64px 24px;
+    gap: 12px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.cp-state-msg p {
+    font-size: 16px;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.cp-state-msg span, .cp-state-msg code {
+    font-size: 13px;
+    font-family: var(--font-mono);
+    color: var(--text-tertiary);
+}
+
+.cp-state-msg.error p {
+    color: #ff6b6b;
+}
+
+/* Upload error in modal */
+.upload-error {
+    color: #ff6b6b;
+    font-size: 12px;
+    margin: 0;
 }
 
 .cp-card-body {

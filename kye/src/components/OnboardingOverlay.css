@@ -46,8 +46,11 @@
     gap: 12px;
 }
 
-.onboarding-logo-icon {
-    color: var(--accent);
+.onboarding-logo-img {
+    height: 64px;
+    width: auto;
+    object-fit: contain;
+    margin-bottom: 8px;
 }
 
 .onboarding-header h2 {
