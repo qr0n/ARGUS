@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { Bell, LayoutDashboard, Search as SearchIcon, Camera, Activity, FileText, ChevronLeft, ChevronRight, UserCircle } from 'lucide-react';
 import './Layout.css';
+import argusLogo from '../assets/argus_logo_light.png';
 
 export function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean, setCollapsed: (val: boolean) => void }) {
   const navItems = [
@@ -16,7 +17,10 @@ export function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean, setCo
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : 'expanded'}`}>
       <div className="sidebar-header">
-        <h1 className="brand-title">{collapsed ? 'A' : 'ARGUS'}</h1>
+        <div className="brand-container">
+          <img src={argusLogo} alt="ARGUS Logo" className="brand-logo" />
+          {!collapsed && <h1 className="brand-title">ARGUS</h1>}
+        </div>
         {!collapsed && <span className="brand-subtitle">Automated Recognition & Geo-tracking Unified System</span>}
       </div>
 

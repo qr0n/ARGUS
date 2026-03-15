@@ -42,6 +42,23 @@
     padding: 0;
 }
 
+.brand-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.brand-logo {
+    height: 44px;
+    width: auto;
+    object-fit: contain;
+}
+
+.sidebar.collapsed .brand-logo {
+    height: 32px;
+}
+
 .brand-title {
     color: var(--text-primary);
     font-family: var(--font-mono);
