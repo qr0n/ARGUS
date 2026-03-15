@@ -7,8 +7,7 @@ export function OnboardingOverlay({ onDismiss }: { onDismiss: () => void }) {
         <div className="onboarding-overlay">
             <div className="onboarding-modal">
                 <div className="onboarding-header">
-                    <img src={argusLogo} alt="ARGUS Logo" className="onboarding-logo-img" />
-                    <h2>Welcome to ARGUS</h2>
+                    <h2>Welcome to <span className="brand-logo-wrap"><img src={argusLogo} alt="ARGUS Logo" className="onboarding-logo-img" />ARGUS</span></h2>
                     <p>Autonomous Recognition & Geo-Unified Surveillance System</p>
                 </div>
 
