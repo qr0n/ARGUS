@@ -22,6 +22,7 @@ export function AIAging() {
 
   useEffect(() => {
     let isMounted = true;
+    const API_URL = import.meta.env.VITE_API_URL || 'https://localhost:3000';
     const initFaceApi = async () => {
       try {
         const faceapi = window.faceapi;
@@ -29,17 +30,17 @@ export function AIAging() {
           if (isMounted) setTimeout(initFaceApi, 500);
           return;
         }
-        await faceapi.nets.ssdMobilenetv1.loadFromUri('https://localhost:3000/models');
-        await faceapi.nets.faceLandmark68Net.loadFromUri('https://localhost:3000/models');
-        await faceapi.nets.faceRecognitionNet.loadFromUri('https://localhost:3000/models');
+        await faceapi.nets.ssdMobilenetv1.loadFromUri(`${API_URL}/models`);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(`${API_URL}/models`);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(`${API_URL}/models`);
 
-        const res = await fetch('https://localhost:3000/dataset');
+        const res = await fetch(`${API_URL}/dataset`);
         const images = await res.json();
         
         const labeledDescriptors: any[] = [];
         const mapping: Record<string, string> = {};
         for (const filename of images) {
-          const img = await faceapi.fetchImage(`https://localhost:3000/dataset/${filename}`);
+          const img = await faceapi.fetchImage(`${API_URL}/dataset/${filename}`);
           const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
           
           if (detections) {
@@ -135,7 +136,7 @@ export function AIAging() {
             setMatchResult({
               name: bestMatch.label,
               conf: Math.min(100, Math.max(0, conf)),
-              src: `https://localhost:3000/dataset/${targetFilename}`
+              src: `${import.meta.env.VITE_API_URL || 'https://localhost:3000'}/dataset/${targetFilename}`
             });
           }
         }
@@ -322,7 +323,7 @@ export function AIAging() {
               <p>{!matcherReady ? 'Connection Error' : 'Awaiting Image'}</p>
               <span>{
                 !matcherReady 
-                ? 'Cannot connect to Server. Please open a new tab to https://localhost:3000 and click "Advanced" -> "Proceed" to accept the SSL certificate, then refresh this page.'
+                ? `Cannot connect to Server. Please open a new tab to ${import.meta.env.VITE_API_URL || 'https://localhost:3000'} and click "Advanced" -> "Proceed" to accept the SSL certificate, then refresh this page.`
                 : 'Upload an image and run the simulation to view predictions and database matches.'
               }</span>
             </div>

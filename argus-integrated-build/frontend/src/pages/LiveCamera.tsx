@@ -33,7 +33,7 @@ export function LiveCamera() {
                 }
                 
                 setStatusText('LOADING AI MODELS...');
-                const backendHost = window.location.hostname === 'localhost' ? 'https://localhost:3000' : `https://${window.location.host.replace(/:\d+$/, ':3000')}`;
+                const backendHost = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'https://localhost:3000' : `https://${window.location.host.replace(/:\d+$/, ':3000')}`);
                 const modelUrl = `${backendHost}/models`;
                 const datasetUrl = `${backendHost}/dataset`;
 
@@ -112,10 +112,17 @@ export function LiveCamera() {
         }
 
         setStatusText('CONNECTING TO SERVER...');
-        const isHttps = window.location.protocol === 'https:';
-        const wsProtocol = isHttps ? 'wss:' : 'ws:';
-        const host = window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.host.replace(/:\d+$/, ':3000');
-        const wsUrl = `${wsProtocol}//${host}/ws-view`;
+        const configuredApiUrl = import.meta.env.VITE_API_URL;
+        let wsUrl = '';
+        if (configuredApiUrl) {
+            wsUrl = configuredApiUrl.replace(/^http/, 'ws') + '/ws-view';
+        } else {
+            const isHttps = window.location.protocol === 'https:';
+            const wsProtocol = isHttps ? 'wss:' : 'ws:';
+            const host = window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.host.replace(/:\d+$/, ':3000');
+            wsUrl = `${wsProtocol}//${host}/ws-view`;
+        }
+        
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
