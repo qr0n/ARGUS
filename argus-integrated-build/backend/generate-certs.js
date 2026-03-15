@@ -23,6 +23,7 @@ const attrs = [
 ];
 
 const opts = {
+    keySize: 2048,
     days: 365,
     extensions: [{
         name: 'subjectAltName',

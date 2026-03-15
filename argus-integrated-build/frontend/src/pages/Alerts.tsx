@@ -1,60 +1,129 @@
+import { useState, useEffect } from 'react';
 import './Alerts.css';
-import { Check, X } from 'lucide-react';
+import { Check, X, Loader2 } from 'lucide-react';
+
+interface LogEntry {
+    id?: string;
+    time: string;
+    activity: string;
+    type?: string;
+    severity?: string;
+    status?: string;
+}
 
 export function Alerts() {
+    const [alerts, setAlerts] = useState<LogEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [filter, setFilter] = useState<'unreviewed' | 'verified' | 'dismissed'>('unreviewed');
+    
+    const fetchAlerts = () => {
+        fetch('/api/logs')
+            .then(res => res.json())
+            .then((data: LogEntry[]) => {
+                // Filter out info logs, we only want warnings or high priority items to act as Alerts
+                const filtered = data.filter(log => log.severity === 'warning' || log.severity === 'high');
+                setAlerts(filtered);
+                setLoading(false);
+            })
+            .catch(err => {
+                console.error("Failed to fetch alerts", err);
+                setLoading(false);
+            });
+    };
+
+    useEffect(() => {
+        fetchAlerts();
+    }, []);
+
+    const updateStatus = async (id: string, newStatus: string) => {
+        try {
+            await fetch(`/api/logs/${id}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus })
+            });
+            fetchAlerts(); // refresh
+        } catch (e) {
+            console.error("Failed to update status", e);
+        }
+    };
+
+    const filteredAlerts = alerts.filter(a => (a.status || 'unreviewed') === filter);
+    const unreviewedCount = alerts.filter(a => (a.status || 'unreviewed') === 'unreviewed').length;
+
     return (
         <div className="alerts-page">
             <div className="alerts-toolbar">
-                <div className="alerts-count mono">14 ALERTS UNREVIEWED</div>
+                <div className="alerts-count mono">{unreviewedCount} ALERTS UNREVIEWED</div>
                 <div className="filter-tabs">
-                    <button className="tab active">Unreviewed</button>
-                    <button className="tab">Verified</button>
-                    <button className="tab">Dismissed</button>
+                    <button className={`tab ${filter === 'unreviewed' ? 'active' : ''}`} onClick={() => setFilter('unreviewed')}>Unreviewed</button>
+                    <button className={`tab ${filter === 'verified' ? 'active' : ''}`} onClick={() => setFilter('verified')}>Verified</button>
+                    <button className={`tab ${filter === 'dismissed' ? 'active' : ''}`} onClick={() => setFilter('dismissed')}>Dismissed</button>
                 </div>
             </div>
 
             <div className="alerts-listview">
-                {[1, 2, 3, 4, 5].map((i) => (
-                    <div key={i} className="card alert-full-card">
-                        <div className="alert-full-avatar">
-                            <span className="online-dot"></span>
-                        </div>
+                {loading ? (
+                    <div style={{ padding: '40px', textAlign: 'center' }}><Loader2 className="spin" size={32} color="var(--accent)" /></div>
+                ) : filteredAlerts.length > 0 ? filteredAlerts.map((alert) => {
+                    // Extract confidence if exists in string (e.g. "91%")
+                    const confMatch = alert.activity.match(/(\d+)%/);
+                    const conf = confMatch ? confMatch[1] : null;
+                    const cleanActivity = alert.activity;
+                    
+                    return (
+                        <div key={alert.id || alert.time} className="card alert-full-card">
+                            <div className="alert-full-avatar">
+                                <span className={`online-dot ${alert.status === 'dismissed' ? 'offline' : ''}`}></span>
+                            </div>
 
-                        <div className="alert-full-info">
-                            <div className="afi-header">
-                                <h3 className="afi-name">Unknown Subject #{8000 + i}</h3>
-                                <div className="afi-tags">
-                                    <span className="badge badge-amber">Missing</span>
-                                    <span className="badge badge-red">High Priority</span>
+                            <div className="alert-full-info">
+                                <div className="afi-header">
+                                    <h3 className="afi-name">{cleanActivity}</h3>
+                                    <div className="afi-tags">
+                                        <span className={`badge ${alert.severity === 'warning' ? 'badge-amber' : 'badge-red'}`}>
+                                            {alert.severity === 'warning' ? 'Attention' : 'High Priority'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="afi-meta mono">
+                                    <span className="afi-time">{alert.time}</span>
+                                    <span className="afi-divider">|</span>
+                                    <span className="afi-source">AT: {alert.type ? alert.type.toUpperCase() : 'SYSTEM'}</span>
                                 </div>
                             </div>
-                            <div className="afi-meta mono">
-                                <span className="afi-time">MAR 12, 5:54 PM</span>
-                                <span className="afi-divider">|</span>
-                                <span className="afi-source">AT: IMAGE-UPLOAD</span>
-                            </div>
-                        </div>
 
-                        <div className="alert-full-confidence">
-                            <span className="badge badge-blue mono">78% CONFIDENT</span>
-                            <div className="progress-bar-container">
-                                <div className="progress-bar-fill" style={{ width: '78%' }}></div>
-                            </div>
-                        </div>
+                            {conf && (
+                                <div className="alert-full-confidence">
+                                    <span className="badge badge-blue mono">{conf}% CONFIDENT</span>
+                                    <div className="progress-bar-container">
+                                        <div className="progress-bar-fill" style={{ width: `${conf}%` }}></div>
+                                    </div>
+                                </div>
+                            )}
 
-                        <div className="alert-full-actions">
-                            <span className="badge badge-red status-badge">UNREVIEWED</span>
-                            <div className="action-btns">
-                                <button className="btn btn-action-verify">
-                                    <Check size={16} /> Verify Identified Match
-                                </button>
-                                <button className="btn btn-danger">
-                                    <X size={16} /> Dismiss
-                                </button>
+                            <div className="alert-full-actions">
+                                <span className={`badge status-badge ${filter === 'unreviewed' ? 'badge-red' : filter === 'verified' ? 'badge-green' : 'badge-blue'}`}>
+                                    {filter.toUpperCase()}
+                                </span>
+                                {(alert.status || 'unreviewed') === 'unreviewed' && (
+                                    <div className="action-btns">
+                                        <button className="btn btn-action-verify" onClick={() => updateStatus(alert.id!, 'verified')}>
+                                            <Check size={16} /> Verify
+                                        </button>
+                                        <button className="btn btn-danger" onClick={() => updateStatus(alert.id!, 'dismissed')}>
+                                            <X size={16} /> Dismiss
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
+                    );
+                }) : (
+                    <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-tertiary)' }}>
+                        No {filter} alerts found in the database.
                     </div>
-                ))}
+                )}
             </div>
         </div>
     );

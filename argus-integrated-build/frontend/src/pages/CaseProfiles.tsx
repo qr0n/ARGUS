@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, Plus, Trash2, UploadCloud, Loader2, RefreshCw } from 'lucide-react';
 import './CaseProfiles.css';
 
-const SERVER = import.meta.env.VITE_API_URL;
+const SERVER = ''; // Using Vite proxy to avoid strict SSL issues
 
 interface DatasetProfile {
   filename: string;
@@ -75,6 +75,16 @@ export function CaseProfiles() {
       const res = await fetch(`${SERVER}/dataset/upload`, { method: 'POST', body: fd });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Upload failed');
+      
+      // Activity Log 
+      try {
+          await fetch('/api/logs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ activity: `Added ${subjectName.trim()} to Case Profiles dataset.`, type: 'upload', severity: 'info' })
+          });
+      } catch (err) { console.error("Failed to log activity", err); }
+      
       setShowModal(false);
       setSubjectName('');
       setPhotoFile(null);
@@ -93,6 +103,16 @@ export function CaseProfiles() {
     try {
       await fetch(`${SERVER}/dataset/${filename}`, { method: 'DELETE' });
       setProfiles(prev => prev.filter(p => p.filename !== filename));
+      
+      // Activity Log 
+      try {
+          await fetch('/api/logs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ activity: `Removed ${toDisplayName(filename)} from Case Profiles dataset.`, type: 'delete', severity: 'warning' })
+          });
+      } catch (err) { console.error("Failed to log activity", err); }
+      
     } catch {}
     setDeletingFile(null);
   };

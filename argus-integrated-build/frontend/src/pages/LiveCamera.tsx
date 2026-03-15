@@ -33,9 +33,8 @@ export function LiveCamera() {
                 }
                 
                 setStatusText('LOADING AI MODELS...');
-                const backendHost = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? '' : `https://${window.location.host}`);
-                const modelUrl = `${backendHost}/models`;
-                const datasetUrl = `${backendHost}/dataset`;
+                const modelUrl = `/models`;
+                const datasetUrl = `/dataset`;
 
                 await faceapi.nets.ssdMobilenetv1.loadFromUri(modelUrl);
                 await faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl);
@@ -75,7 +74,7 @@ export function LiveCamera() {
                 );
 
                 if (labeledDescriptors.length > 0 && isMounted) {
-                    faceMatcherRef.current = new faceapi.FaceMatcher(labeledDescriptors, 0.5);
+                    faceMatcherRef.current = new faceapi.FaceMatcher(labeledDescriptors, 0.55);
                 }
                 if (isMounted) {
                     setModelsLoaded(true);
@@ -113,22 +112,9 @@ export function LiveCamera() {
         }
 
         setStatusText('CONNECTING TO SERVER...');
-        const configuredApiUrl = import.meta.env.VITE_API_URL;
-        let wsUrl = '';
-        if (configuredApiUrl) {
-            wsUrl = configuredApiUrl.replace(/^http/, 'ws') + '/ws-view';
-        } else {
-            const isHttps = window.location.protocol === 'https:';
-            const wsProtocol = isHttps ? 'wss:' : 'ws:';
-            const configuredApiUrl = import.meta.env.VITE_API_URL;
-            let host;
-            if (configuredApiUrl) {
-                host = new URL(configuredApiUrl).host;
-            } else {
-                host = window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.host;
-            }
-            wsUrl = `${wsProtocol}//${host}/ws-view`;
-        }
+        const isHttps = window.location.protocol === 'https:';
+        const wsProtocol = isHttps ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws-view`;
         
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
