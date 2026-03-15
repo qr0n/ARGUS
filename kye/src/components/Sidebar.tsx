@@ -7,7 +7,7 @@ export function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean, setCo
     { label: 'Alerts', icon: <Bell size={24} />, path: '/alerts', badge: 2, desc: 'Alerts - Review and manage system alerts' },
     { label: 'Dashboard', icon: <LayoutDashboard size={24} />, path: '/', desc: 'Dashboard - System Overview and Metrics' },
     { label: 'Find Matches', icon: <SearchIcon size={24} />, path: '/find-matches', desc: 'Find Matches - Upload imagery for cross-reference' },
-    { label: 'Aging Detection', icon: <UserCircle size={24} />, path: '/ai-aging', desc: 'Aging Detection - Simulate suspect aging progressions' },
+    { label: 'AI Aging', icon: <UserCircle size={24} />, path: '/ai-aging', desc: 'AI Aging - Simulate suspect aging progressions' },
     { label: 'Live Camera', icon: <Camera size={24} />, path: '/live-camera', desc: 'Live Camera - Real-time feed analysis' },
     { label: 'Activity Log', icon: <Activity size={24} />, path: '/activity-log', desc: 'Activity Log - Audit trail of recent events' },
     { label: 'Case Profiles', icon: <FileText size={24} />, path: '/case-profiles', desc: 'Case Profiles - Manage investigative profiles' },

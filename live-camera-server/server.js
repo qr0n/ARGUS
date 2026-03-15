@@ -53,7 +53,7 @@ const wss = new WebSocketServer({ server });
 
 // Connections
 let streamer = null;
-let viewer = null;
+const viewers = new Set();
 
 wss.on('connection', (ws, req) => {
     const isStreamer = req.url === '/ws-stream';
@@ -61,25 +61,29 @@ wss.on('connection', (ws, req) => {
     if (isStreamer) {
         console.log('📱 Streamer connected');
         streamer = ws;
-        if (viewer) {
-            streamer.send(JSON.stringify({ type: 'viewer-ready' }));
-            viewer.send(JSON.stringify({ type: 'streamer-present' }));
-        }
+        viewers.forEach(viewer => {
+            if (streamer.readyState === ws.OPEN) streamer.send(JSON.stringify({ type: 'viewer-ready' }));
+            if (viewer.readyState === ws.OPEN) viewer.send(JSON.stringify({ type: 'streamer-present' }));
+        });
     } else {
         // Treat any other WS path as viewer (e.g., /ws-view)
         console.log('💻 Viewer connected');
-        viewer = ws;
-        if (streamer) {
+        viewers.add(ws);
+        if (streamer && streamer.readyState === ws.OPEN) {
             streamer.send(JSON.stringify({ type: 'viewer-ready' }));
-            viewer.send(JSON.stringify({ type: 'streamer-present' }));
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'streamer-present' }));
         }
     }
 
     ws.on('message', (message) => {
         // Relay everything
-        if (isStreamer && viewer) {
-            viewer.send(message.toString());
-        } else if (!isStreamer && streamer) {
+        if (isStreamer) {
+            viewers.forEach(viewer => {
+                if (viewer.readyState === ws.OPEN) {
+                    viewer.send(message.toString());
+                }
+            });
+        } else if (!isStreamer && streamer && streamer.readyState === ws.OPEN) {
             streamer.send(message.toString());
         }
     });
@@ -88,11 +92,13 @@ wss.on('connection', (ws, req) => {
         if (isStreamer) {
             console.log('📱 Streamer disconnected');
             streamer = null;
-            if (viewer) viewer.send(JSON.stringify({ type: 'streamer-gone' }));
+            viewers.forEach(viewer => {
+                if (viewer.readyState === ws.OPEN) viewer.send(JSON.stringify({ type: 'streamer-gone' }))
+            });
         } else {
             console.log('💻 Viewer disconnected');
-            viewer = null;
-            if (streamer) streamer.send(JSON.stringify({ type: 'viewer-gone' }));
+            viewers.delete(ws);
+            if (streamer && streamer.readyState === ws.OPEN) streamer.send(JSON.stringify({ type: 'viewer-gone' }));
         }
     });
 });
