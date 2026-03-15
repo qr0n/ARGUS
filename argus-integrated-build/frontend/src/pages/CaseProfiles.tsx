@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, Plus, Trash2, UploadCloud, Loader2, RefreshCw } from 'lucide-react';
 import './CaseProfiles.css';
 
-const SERVER = import.meta.env.VITE_API_URL || 'https://localhost:3000';
+const SERVER = import.meta.env.VITE_API_URL;
 
 interface DatasetProfile {
   filename: string;

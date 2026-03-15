@@ -33,7 +33,7 @@ export function LiveCamera() {
                 }
                 
                 setStatusText('LOADING AI MODELS...');
-                const backendHost = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'https://localhost:3000' : `https://${window.location.host.replace(/:\d+$/, ':3000')}`);
+                const backendHost = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? '' : `https://${window.location.host.replace(/:\d+$/, ':3000')}`);
                 const modelUrl = `${backendHost}/models`;
                 const datasetUrl = `${backendHost}/dataset`;
 

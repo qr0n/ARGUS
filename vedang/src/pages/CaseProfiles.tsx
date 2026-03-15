@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, Plus, Trash2, UploadCloud, Loader2, RefreshCw } from 'lucide-react';
 import './CaseProfiles.css';
 
-const SERVER = 'https://localhost:3000';
+const SERVER = `https://${window.location.hostname}:3000`;
 
 interface DatasetProfile {
   filename: string;
@@ -138,7 +138,7 @@ export function CaseProfiles() {
 
       {!loading && serverError && (
         <div className="cp-state-msg error">
-          <p>⚠️ Cannot reach the AI server at <code>https://localhost:3000</code>.</p>
+          <p>⚠️ Cannot reach the AI server at <code>{SERVER}</code>.</p>
           <span>Make sure the live-camera-server is running, then open that URL and accept the certificate warning.</span>
           <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={fetchProfiles}>Retry</button>
         </div>

@@ -29,19 +29,18 @@ export function AIAging() {
           if (isMounted) setTimeout(initFaceApi, 500);
           return;
         }
-        await faceapi.nets.ssdMobilenetv1.loadFromUri('https://localhost:3000/models');
-        await faceapi.nets.faceLandmark68Net.loadFromUri('https://localhost:3000/models');
-        await faceapi.nets.faceRecognitionNet.loadFromUri('https://localhost:3000/models');
+          const SERVER = window.location.hostname === 'localhost' ? 'https://localhost:3000' : `https://${window.location.hostname}:3000`;
+          await faceapi.nets.ssdMobilenetv1.loadFromUri(`${SERVER}/models`);
+          await faceapi.nets.faceLandmark68Net.loadFromUri(`${SERVER}/models`);
+          await faceapi.nets.faceRecognitionNet.loadFromUri(`${SERVER}/models`);
 
-        const res = await fetch('https://localhost:3000/dataset');
+          const res = await fetch(`${SERVER}/dataset`);
         const images = await res.json();
         
         const labeledDescriptors: any[] = [];
         const mapping: Record<string, string> = {};
         for (const filename of images) {
-          const img = await faceapi.fetchImage(`https://localhost:3000/dataset/${filename}`);
-          const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
-          
+            const img = await faceapi.fetchImage(`${SERVER}/dataset/${filename}`);
           if (detections) {
             let label = filename.split('.')[0];
             label = label.replace(/_[0-9]+$/, '').replace(/[_|-]/g, ' '); 

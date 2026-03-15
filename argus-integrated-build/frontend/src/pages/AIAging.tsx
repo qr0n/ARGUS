@@ -22,7 +22,7 @@ export function AIAging() {
 
   useEffect(() => {
     let isMounted = true;
-    const API_URL = import.meta.env.VITE_API_URL || 'https://localhost:3000';
+    const API_URL = import.meta.env.VITE_API_URL;
     const initFaceApi = async () => {
       try {
         const faceapi = window.faceapi;
@@ -136,7 +136,7 @@ export function AIAging() {
             setMatchResult({
               name: bestMatch.label,
               conf: Math.min(100, Math.max(0, conf)),
-              src: `${import.meta.env.VITE_API_URL || 'https://localhost:3000'}/dataset/${targetFilename}`
+              src: `${import.meta.env.VITE_API_URL}/dataset/${targetFilename}`
             });
           }
         }
@@ -323,7 +323,7 @@ export function AIAging() {
               <p>{!matcherReady ? 'Connection Error' : 'Awaiting Image'}</p>
               <span>{
                 !matcherReady 
-                ? `Cannot connect to Server. Please open a new tab to ${import.meta.env.VITE_API_URL || 'https://localhost:3000'} and click "Advanced" -> "Proceed" to accept the SSL certificate, then refresh this page.`
+                ? `Cannot connect to Server. Please open a new tab to ${import.meta.env.VITE_API_URL} and click "Advanced" -> "Proceed" to accept the SSL certificate, then refresh this page.`
                 : 'Upload an image and run the simulation to view predictions and database matches.'
               }</span>
             </div>
