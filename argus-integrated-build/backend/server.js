@@ -162,6 +162,65 @@ app.get('/dataset', (req, res) => {
     }
 });
 
+// Activity Logs API
+app.use(express.json());
+
+const LOGS_FILE = path.join(process.cwd(), 'dataset', 'logs.json');
+if (!fs.existsSync(LOGS_FILE)) {
+    fs.writeFileSync(LOGS_FILE, JSON.stringify([]));
+}
+
+app.get('/api/logs', (req, res) => {
+    try {
+        const logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
+        res.json(logs);
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to read logs' });
+    }
+});
+
+app.post('/api/logs', (req, res) => {
+    try {
+        const newLog = req.body;
+        // { time, activity, type, severity, status, id }
+        newLog.id = Date.now().toString() + Math.floor(Math.random() * 10000).toString();
+        newLog.status = newLog.status || 'unreviewed';
+        if (!newLog.time) {
+            newLog.time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+        
+        const logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
+        logs.unshift(newLog); // Add to beginning
+        
+        // Keep only the latest 100 logs
+        if (logs.length > 100) logs.pop();
+        
+        fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 2));
+        res.json({ success: true, log: newLog });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to write log' });
+    }
+});
+
+app.patch('/api/logs/:id/status', (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        const logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
+        
+        const log = logs.find(l => l.id === id);
+        if (log) {
+            log.status = status;
+            fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 2));
+            res.json({ success: true, log });
+        } else {
+            res.status(404).json({ error: 'Log not found' });
+        }
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to update log' });
+    }
+});
+
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`
       ✅ ARGUS Live Camera Server Running (HTTPS API & WSS over TLS)

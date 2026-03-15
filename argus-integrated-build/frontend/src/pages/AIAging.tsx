@@ -22,7 +22,6 @@ export function AIAging() {
 
   useEffect(() => {
     let isMounted = true;
-    const API_URL = import.meta.env.VITE_API_URL;
     const initFaceApi = async () => {
       try {
         const faceapi = window.faceapi;
@@ -30,17 +29,17 @@ export function AIAging() {
           if (isMounted) setTimeout(initFaceApi, 500);
           return;
         }
-        await faceapi.nets.ssdMobilenetv1.loadFromUri(`${API_URL}/models`);
-        await faceapi.nets.faceLandmark68Net.loadFromUri(`${API_URL}/models`);
-        await faceapi.nets.faceRecognitionNet.loadFromUri(`${API_URL}/models`);
+        await faceapi.nets.ssdMobilenetv1.loadFromUri(`/models`);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(`/models`);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(`/models`);
 
-        const res = await fetch(`${API_URL}/dataset`);
+        const res = await fetch(`/dataset`);
         const images = await res.json();
         
         const labeledDescriptors: any[] = [];
         const mapping: Record<string, string> = {};
         for (const filename of images) {
-          const img = await faceapi.fetchImage(`${API_URL}/dataset/${filename}`);
+          const img = await faceapi.fetchImage(`/dataset/${filename}`);
           const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
           
           if (detections) {
@@ -136,8 +135,23 @@ export function AIAging() {
             setMatchResult({
               name: bestMatch.label,
               conf: Math.min(100, Math.max(0, conf)),
-              src: `${import.meta.env.VITE_API_URL}/dataset/${targetFilename}`
+              src: `/dataset/${targetFilename}`
             });
+            
+            // Log Match
+            fetch('/api/logs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ activity: `AI Aging: Match Detected — ${bestMatch.label} (${Math.min(100, Math.max(0, conf))}%)`, type: 'ai-scan', severity: 'warning' })
+            }).catch(e => console.error("Failed to log", e));
+
+          } else {
+            // Log No Match
+            fetch('/api/logs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ activity: `AI Aging: No database match found.`, type: 'ai-scan', severity: 'info' })
+            }).catch(e => console.error("Failed to log", e));
           }
         }
 

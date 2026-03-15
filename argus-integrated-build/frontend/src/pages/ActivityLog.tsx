@@ -1,14 +1,15 @@
+import { useState, useEffect } from 'react';
 import './ActivityLog.css';
 
 export function ActivityLog() {
-    const dummyLogs = Array.from({ length: 20 }).map((_, i) => {
-        const time = `05:${20 - i < 10 ? '0' : ''}${20 - i}:03 PM`;
-        const conf = 85 - (i % 3) * 5;
-        return {
-            time,
-            activity: `Match Detected — John Smith AT Image Upload (${conf}%)`
-        };
-    });
+    const [logs, setLogs] = useState<{time: string, activity: string, type?: string}[]>([]);
+
+    useEffect(() => {
+        fetch('/api/logs')
+            .then(res => res.json())
+            .then(data => setLogs(data))
+            .catch(err => console.error("Failed to fetch logs", err));
+    }, []);
 
     return (
         <div className="activity-log-page">
@@ -19,12 +20,17 @@ export function ActivityLog() {
                 </div>
 
                 <div className="log-table-body">
-                    {dummyLogs.map((log, i) => (
+                    {logs.map((log, i) => (
                         <div key={i} className="log-row">
                             <div className="log-col-time mono">{log.time}</div>
                             <div className="log-col-activity mono">{log.activity}</div>
                         </div>
                     ))}
+                    {logs.length === 0 && (
+                        <div style={{ padding: '20px', color: 'var(--text-tertiary)', textAlign: 'center' }}>
+                            No robust activity available on the server yet.
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
