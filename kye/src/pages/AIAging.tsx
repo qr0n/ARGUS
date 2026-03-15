@@ -175,34 +175,34 @@ export function AIAging() {
         <h4>AI Aging Process</h4>
         <div className="steps-row">
           <div className={`hiw-step ${currentStep >= 1 ? 'active-step' : ''}`}>
-            <div className="hiw-icon"><UploadCloud size={20} /></div>
+            <span className="hiw-num">1</span>
             <div className="hiw-text">
-              <span className="hiw-num">1</span>
-              <span>Upload Image</span>
+              <span className="hiw-title"><UploadCloud size={24} /> UPLOAD</span>
+              <span className="hiw-desc">Drop image or browse and select subject photo</span>
             </div>
           </div>
           <ChevronRight className="hiw-arrow" />
           <div className={`hiw-step ${currentStep >= 2 ? 'active-step' : ''}`}>
-            <div className="hiw-icon"><FileSearch size={20} /></div>
+            <span className="hiw-num">2</span>
             <div className="hiw-text">
-              <span className="hiw-num">2</span>
-              <span>Image Scan</span>
+              <span className="hiw-title"><FileSearch size={24} /> IMAGE SCAN</span>
+              <span className="hiw-desc">AI locates and extracts the subject's facial features</span>
             </div>
           </div>
           <ChevronRight className="hiw-arrow" />
           <div className={`hiw-step ${currentStep >= 3 ? 'active-step' : ''}`}>
-            <div className="hiw-icon"><Activity size={20} /></div>
+            <span className="hiw-num">3</span>
             <div className="hiw-text">
-              <span className="hiw-num">3</span>
-              <span>AI Aging Process</span>
+              <span className="hiw-title"><Activity size={24} /> AGING MODEL</span>
+              <span className="hiw-desc">AI applies aging or de-aging simulation based on selected interval</span>
             </div>
           </div>
           <ChevronRight className="hiw-arrow" />
           <div className={`hiw-step ${currentStep >= 4 ? 'active-step' : ''}`}>
-            <div className="hiw-icon"><CheckCircle2 size={20} /></div>
+            <span className="hiw-num">4</span>
             <div className="hiw-text">
-              <span className="hiw-num">4</span>
-              <span>Result Matches</span>
+              <span className="hiw-title"><CheckCircle2 size={28} /> RESULT MATCHES</span>
+              <span className="hiw-desc">Aged prediction returned and matched against database records</span>
             </div>
           </div>
         </div>

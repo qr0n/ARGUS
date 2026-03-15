@@ -35,7 +35,7 @@ export function FindMatches() {
                     <div className="hiw-step">
                         <span className="hiw-num">4</span>
                         <div className="hiw-text">
-                            <span className="hiw-title"><CheckCircle2 size={24} /> REVIEW MATCHES</span>
+                            <span className="hiw-title"><CheckCircle2 size={28} /> REVIEW MATCHES</span>
                             <span className="hiw-desc">Top matches returned for human verification</span>
                         </div>
                     </div>
