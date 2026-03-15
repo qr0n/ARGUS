@@ -1,7 +1,9 @@
 import { AlertTriangle, Clock, Activity, FileCheck, CheckCircle2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import './Dashboard.css';
 
 export function Dashboard() {
+    const navigate = useNavigate();
     const now = new Date();
     const dateString = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const timeString = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -76,19 +78,24 @@ export function Dashboard() {
                         <div className="alert-list">
                             {[1, 2, 3].map((i) => (
                                 <div key={i} className="alert-row">
-                                    <div className="alert-avatar"></div>
-                                    <div className="alert-details">
-                                        <span className="alert-name">John Smith {i}</span>
-                                        <span className="badge badge-blue mono">IMAGE UPLOAD</span>
+                                    <div className="alert-row-top">
+                                        <div className="alert-avatar"></div>
+                                        <div className="alert-details">
+                                            <span className="alert-name">John Smith {i}</span>
+                                            <span className="badge badge-blue mono">IMAGE UPLOAD</span>
+                                        </div>
+                                        <span className="badge badge-red alert-status-badge">Unreviewed</span>
                                     </div>
-                                    <div className="alert-meta">
-                                        <span className="badge badge-amber mono">78%</span>
-                                        <span className="badge badge-red">Unreviewed</span>
+                                    <div className="alert-row-confidence">
+                                        <span className="badge badge-amber mono alert-confidence-badge">78% CONFIDENT</span>
+                                        <div className="progress-bar-container">
+                                            <div className="progress-bar-fill" style={{ width: '78%' }}></div>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
                         </div>
-                        <button className="btn btn-full">View All Alerts</button>
+                        <button className="btn btn-full" onClick={() => navigate('/alerts')}>View All Alerts</button>
                     </div>
 
                     {/* Active Cases */}
@@ -110,7 +117,7 @@ export function Dashboard() {
                                 </div>
                             ))}
                         </div>
-                        <button className="btn btn-full">View All Cases</button>
+                        <button className="btn btn-full" onClick={() => navigate('/case-profiles')}>View All Cases</button>
                     </div>
                 </div>
             </div>

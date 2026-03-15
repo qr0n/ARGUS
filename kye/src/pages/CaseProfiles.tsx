@@ -6,6 +6,9 @@ export function CaseProfiles() {
     const [showModal, setShowModal] = useState(false);
     const [showDetails, setShowDetails] = useState(false);
 
+    const [showEdit, setShowEdit] = useState(false);
+    const [activeTab, setActiveTab] = useState('All');
+
     return (
         <div className="case-profiles-page">
             <div className="cp-toolbar">
@@ -15,10 +18,15 @@ export function CaseProfiles() {
                 </div>
 
                 <div className="filter-tabs">
-                    <button className="tab active">All</button>
-                    <button className="tab">Missing</button>
-                    <button className="tab">Wanted</button>
-                    <button className="tab">Resolved</button>
+                    {['All', 'Missing', 'Wanted', 'Resolved'].map(tab => (
+                        <button
+                            key={tab}
+                            className={`tab ${activeTab === tab ? 'active' : ''}`}
+                            onClick={() => setActiveTab(tab)}
+                        >
+                            {tab}
+                        </button>
+                    ))}
                 </div>
 
                 <button className="btn btn-primary cp-create-btn" onClick={() => setShowModal(true)}>
@@ -133,8 +141,70 @@ export function CaseProfiles() {
                             <button className="btn btn-danger">Close Case</button>
                             <div>
                                 <button className="btn" style={{ marginRight: '12px' }} onClick={() => setShowDetails(false)}>Dismiss</button>
-                                <button className="btn btn-primary">Update Details</button>
+                                <button className="btn btn-primary" onClick={() => {
+                                    setShowDetails(false);
+                                    setShowEdit(true);
+                                }}>Update Details</button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showEdit && (
+                <div className="modal-overlay" onClick={() => setShowEdit(false)}>
+                    <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="modal-title">Edit Case Profile</h3>
+                        <div className="modal-form">
+                            <div className="info-block">
+                                <span className="info-label mono">FULL NAME</span>
+                                <input className="input-field" defaultValue="Subject Name #101" />
+                            </div>
+                            <div className="info-block">
+                                <span className="info-label mono">AGE</span>
+                                <input className="input-field" defaultValue="24" type="number" />
+                            </div>
+
+                            <div className="info-block">
+                                <span className="info-label mono">STATUS</span>
+                                <select className="input-field select-field" defaultValue="wanted">
+                                    <option value="missing">Missing Person</option>
+                                    <option value="wanted">Wanted Person</option>
+                                </select>
+                            </div>
+
+                            <div className="info-block">
+                                <span className="info-label mono">PRIORITY</span>
+                                <select className="input-field select-field" defaultValue="high">
+                                    <option value="high">High Priority</option>
+                                    <option value="medium">Medium Priority</option>
+                                    <option value="low">Low Priority</option>
+                                </select>
+                            </div>
+
+                            <div className="info-block full-width">
+                                <span className="info-label mono">LAST KNOWN LOCATION</span>
+                                <input className="input-field" defaultValue="Kingston, JM" />
+                            </div>
+                            <div className="info-block full-width">
+                                <span className="info-label mono">NOTES / DESCRIPTION</span>
+                                <textarea className="input-field text-area" defaultValue="Subject was last seen heading north. Considered highly dangerous. Proceed with caution." rows={4}></textarea>
+                            </div>
+
+                            <div className="modal-upload full-width">
+                                <p>Update Photo</p>
+                                <button className="btn">Browse File</button>
+                            </div>
+                        </div>
+                        <div className="modal-actions">
+                            <button className="btn" onClick={() => {
+                                setShowEdit(false);
+                                setShowDetails(true);
+                            }}>Cancel</button>
+                            <button className="btn btn-primary" onClick={() => {
+                                setShowEdit(false);
+                                setShowDetails(true);
+                            }}>Save Changes</button>
                         </div>
                     </div>
                 </div>

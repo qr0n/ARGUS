@@ -4,13 +4,13 @@ import './Layout.css';
 
 export function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean, setCollapsed: (val: boolean) => void }) {
   const navItems = [
-    { label: 'Alerts', icon: <Bell size={20} />, path: '/alerts', badge: 2 },
-    { label: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/' },
-    { label: 'Find Matches', icon: <SearchIcon size={20} />, path: '/find-matches' },
-    { label: 'Live Camera', icon: <Camera size={20} />, path: '/live-camera' },
-    { label: 'Activity Log', icon: <Activity size={20} />, path: '/activity-log' },
-    { label: 'Case Profiles', icon: <FileText size={20} />, path: '/case-profiles' },
-    { label: 'AI Aging', icon: <UserCircle size={20} />, path: '/ai-aging' },
+    { label: 'Alerts', icon: <Bell size={24} />, path: '/alerts', badge: 2, desc: 'Alerts - Review and manage system alerts' },
+    { label: 'Dashboard', icon: <LayoutDashboard size={24} />, path: '/', desc: 'Dashboard - System Overview and Metrics' },
+    { label: 'Find Matches', icon: <SearchIcon size={24} />, path: '/find-matches', desc: 'Find Matches - Upload imagery for cross-reference' },
+    { label: 'Aging Detection', icon: <UserCircle size={24} />, path: '/ai-aging', desc: 'Aging Detection - Simulate suspect aging progressions' },
+    { label: 'Live Camera', icon: <Camera size={24} />, path: '/live-camera', desc: 'Live Camera - Real-time feed analysis' },
+    { label: 'Activity Log', icon: <Activity size={24} />, path: '/activity-log', desc: 'Activity Log - Audit trail of recent events' },
+    { label: 'Case Profiles', icon: <FileText size={24} />, path: '/case-profiles', desc: 'Case Profiles - Manage investigative profiles' },
   ];
 
   return (
@@ -26,7 +26,6 @@ export function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean, setCo
             key={item.path}
             to={item.path}
             className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-            title={collapsed ? item.label : undefined}
           >
             <div className="nav-icon-container">
               {item.icon}
@@ -34,6 +33,7 @@ export function Sidebar({ collapsed, setCollapsed }: { collapsed: boolean, setCo
             </div>
             {!collapsed && <span className="nav-label">{item.label}</span>}
             {!collapsed && item.badge && <span className="nav-badge-count">{item.badge}</span>}
+            <span className="nav-tooltip">{item.desc}</span>
           </NavLink>
         ))}
       </nav>

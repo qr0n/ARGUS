@@ -29,7 +29,7 @@
   --font-mono: 'JetBrains Mono', 'Courier New', monospace;
   
   /* Layout */
-  --sidebar-width-expanded: 100px;
+  --sidebar-width-expanded: 220px;
   --sidebar-width-collapsed: 72px;
   --topbar-height: 64px;
 }

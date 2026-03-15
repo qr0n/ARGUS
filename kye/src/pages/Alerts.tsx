@@ -1,15 +1,24 @@
+import { useState } from 'react';
 import './Alerts.css';
 import { Check, X } from 'lucide-react';
 
 export function Alerts() {
+    const [activeTab, setActiveTab] = useState('Unreviewed');
+
     return (
         <div className="alerts-page">
             <div className="alerts-toolbar">
                 <div className="alerts-count mono">14 ALERTS UNREVIEWED</div>
                 <div className="filter-tabs">
-                    <button className="tab active">Unreviewed</button>
-                    <button className="tab">Verified</button>
-                    <button className="tab">Dismissed</button>
+                    {['Unreviewed', 'Verified', 'Dismissed'].map(tab => (
+                        <button
+                            key={tab}
+                            className={`tab ${activeTab === tab ? 'active' : ''}`}
+                            onClick={() => setActiveTab(tab)}
+                        >
+                            {tab}
+                        </button>
+                    ))}
                 </div>
             </div>
 

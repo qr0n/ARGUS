@@ -51,9 +51,27 @@
 .log-row .log-col-time {
     color: var(--text-secondary);
     font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .log-row .log-col-activity {
     color: var(--text-primary);
     font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.log-header .log-col-time,
+.log-header .log-col-activity {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.log-row-icon {
+    flex-shrink: 0;
+    opacity: 0.5;
 }
