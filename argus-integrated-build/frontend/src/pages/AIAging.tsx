@@ -35,26 +35,35 @@ export function AIAging() {
 
         const res = await fetch(`/dataset`);
         const images = await res.json();
-        
-        const labeledDescriptors: any[] = [];
+
+        // Parallel image loading — faster dataset build
+        const descriptorsData = await Promise.all(
+          images.map(async (filename: string) => {
+            try {
+              const img = await faceapi.fetchImage(`/dataset/${filename}`);
+              const det = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+              if (det) {
+                let label = filename.split('.')[0].replace(/_[0-9]+$/, '').replace(/[_|-]/g, ' ');
+                return { label, descriptor: det.descriptor, filename };
+              }
+            } catch { /* skip bad image */ }
+            return null;
+          })
+        );
+
+        // Group by label and build filename mapping
+        const grouped: Record<string, any[]> = {};
         const mapping: Record<string, string> = {};
-        for (const filename of images) {
-          const img = await faceapi.fetchImage(`/dataset/${filename}`);
-          const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
-          
-          if (detections) {
-            let label = filename.split('.')[0];
-            label = label.replace(/_[0-9]+$/, '').replace(/[_|-]/g, ' '); 
-            mapping[label.toLowerCase()] = filename;
-            
-            const existing = labeledDescriptors.find((l: any) => l.label.toLowerCase() === label.toLowerCase());
-            if (existing) {
-              existing.descriptors.push(detections.descriptor);
-            } else {
-              labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(label.toUpperCase(), [detections.descriptor]));
-            }
-          }
+        for (const d of descriptorsData) {
+          if (!d) continue;
+          const key = d.label.toUpperCase();
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(d.descriptor);
+          mapping[d.label.toLowerCase()] = d.filename;
         }
+        const labeledDescriptors = Object.entries(grouped).map(
+          ([label, descs]) => new faceapi.LabeledFaceDescriptors(label, descs)
+        );
         
         if (labeledDescriptors.length > 0 && isMounted) {
           setFaceMatcher(new faceapi.FaceMatcher(labeledDescriptors, 0.5));

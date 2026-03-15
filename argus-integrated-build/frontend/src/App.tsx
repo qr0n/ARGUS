@@ -11,11 +11,18 @@ import { OnboardingOverlay } from './components/OnboardingOverlay';
 import { useState } from 'react';
 
 function App() {
-  const [showOnboarding, setShowOnboarding] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(() => {
+    return localStorage.getItem('argus-onboarded') !== 'true';
+  });
+
+  const handleDismiss = () => {
+    localStorage.setItem('argus-onboarded', 'true');
+    setShowOnboarding(false);
+  };
 
   return (
     <BrowserRouter>
-      {showOnboarding && <OnboardingOverlay onDismiss={() => setShowOnboarding(false)} />}
+      {showOnboarding && <OnboardingOverlay onDismiss={handleDismiss} />}
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />

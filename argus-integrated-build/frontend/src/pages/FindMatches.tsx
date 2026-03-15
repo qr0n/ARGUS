@@ -33,24 +33,33 @@ export function FindMatches() {
 
                 const res = await fetch(`/dataset`);
                 const images = await res.json();
-                
-                const labeledDescriptors: any[] = [];
-                for (const filename of images) {
-                    const img = await faceapi.fetchImage(`/dataset/${filename}`);
-                    const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
-                    
-                    if (detections) {
-                        let label = filename.split('.')[0];
-                        label = label.replace(/_[0-9]+$/, '').replace(/[_|-]/g, ' '); 
-                        
-                        const existing = labeledDescriptors.find((l: any) => l.label.toLowerCase() === label.toLowerCase());
-                        if (existing) {
-                            existing.descriptors.push(detections.descriptor);
-                        } else {
-                            labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(label.toUpperCase(), [detections.descriptor]));
-                        }
-                    }
+
+                // Parallel image loading — same pattern as LiveCamera for speed
+                const descriptorsData = await Promise.all(
+                    images.map(async (filename: string) => {
+                        try {
+                            const img = await faceapi.fetchImage(`/dataset/${filename}`);
+                            const det = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+                            if (det) {
+                                let label = filename.split('.')[0].replace(/_[0-9]+$/, '').replace(/[_|-]/g, ' ');
+                                return { label, descriptor: det.descriptor };
+                            }
+                        } catch { /* skip bad image */ }
+                        return null;
+                    })
+                );
+
+                // Group descriptors by label
+                const grouped: Record<string, any[]> = {};
+                for (const d of descriptorsData) {
+                    if (!d) continue;
+                    const key = d.label.toUpperCase();
+                    if (!grouped[key]) grouped[key] = [];
+                    grouped[key].push(d.descriptor);
                 }
+                const labeledDescriptors = Object.entries(grouped).map(
+                    ([label, descs]) => new faceapi.LabeledFaceDescriptors(label, descs)
+                );
                 
                 if (labeledDescriptors.length > 0 && isMounted) {
                     setFaceMatcher(new faceapi.FaceMatcher(labeledDescriptors, 0.5));
