@@ -4,6 +4,7 @@ import express from 'express';
 import https from 'https';
 import { WebSocketServer } from 'ws';
 import os from 'os';
+import multer from 'multer';
 
 // Get local IPv4 address for logging
 function getLocalIp() {
@@ -26,7 +27,7 @@ const app = express();
 // Explicit CORS Bypass for Vite Localhost
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
@@ -118,6 +119,37 @@ app.get('/stream-video', (req, res) => {
 
 app.get('/view-stream', (req, res) => {
     res.sendFile(path.join(process.cwd(), 'public', 'view-stream.html'));
+});
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, path.join(process.cwd(), 'dataset'));
+    },
+    filename: (req, file, cb) => {
+        const subject = req.body.subject || 'Unknown';
+        const safeSubject = subject.replace(/[^a-zA-Z0-9]/g, '_');
+        const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+        cb(null, safeSubject + ext);
+    }
+});
+const upload = multer({ storage });
+
+app.post('/dataset/upload', upload.single('photo'), (req, res) => {
+    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+    res.json({ success: true, file: req.file.filename });
+});
+
+app.delete('/dataset/:filename', (req, res) => {
+    const filename = req.params.filename;
+    if (filename.includes('..') || filename.includes('/')) {
+        return res.status(403).json({ success: false, error: 'Invalid config' });
+    }
+    const filepath = path.join(process.cwd(), 'dataset', filename);
+    if (!fs.existsSync(filepath)) {
+        return res.status(404).json({ success: false, error: 'File not found' });
+    }
+    fs.unlinkSync(filepath);
+    res.json({ success: true });
 });
 
 app.get('/dataset', (req, res) => {

@@ -33,7 +33,7 @@ export function LiveCamera() {
                 }
                 
                 setStatusText('LOADING AI MODELS...');
-                const backendHost = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? '' : `https://${window.location.host.replace(/:\d+$/, ':3000')}`);
+                const backendHost = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? '' : `https://${window.location.host}`);
                 const modelUrl = `${backendHost}/models`;
                 const datasetUrl = `${backendHost}/dataset`;
 
@@ -98,6 +98,7 @@ export function LiveCamera() {
 
     // WebRTC connection logic
     useEffect(() => {
+        let isMounted = true;
         if (!isLive) {
             if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
             if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
@@ -119,7 +120,13 @@ export function LiveCamera() {
         } else {
             const isHttps = window.location.protocol === 'https:';
             const wsProtocol = isHttps ? 'wss:' : 'ws:';
-            const host = window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.host.replace(/:\d+$/, ':3000');
+            const configuredApiUrl = import.meta.env.VITE_API_URL;
+            let host;
+            if (configuredApiUrl) {
+                host = new URL(configuredApiUrl).host;
+            } else {
+                host = window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.host;
+            }
             wsUrl = `${wsProtocol}//${host}/ws-view`;
         }
         
@@ -135,10 +142,12 @@ export function LiveCamera() {
                 
                 pc.ontrack = (e) => {
                     if (videoRef.current) {
-                        videoRef.current.srcObject = e.streams[0];
-                        videoRef.current.play().catch(console.error);
+                        if (videoRef.current.srcObject !== e.streams[0]) {
+                            videoRef.current.srcObject = e.streams[0];
+                            videoRef.current.play().catch(console.error);
+                        }
                     }
-                    setStatusText('LIVE VIEW');
+                    if (isMounted) setStatusText('LIVE VIEW');
                 };
 
                 pc.onicecandidate = (e) => {
@@ -176,6 +185,7 @@ export function LiveCamera() {
         }
 
         return () => {
+            isMounted = false;
             if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
             if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
         };
