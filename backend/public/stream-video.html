@@ -97,7 +97,10 @@
   </div>
 
   <script>
-    const wsUrl = `wss://${window.location.host}/ws-stream`;
+    const slot = new URLSearchParams(window.location.search).get('slot') || '1';
+    const wsPath = slot === '2' ? '/ws-stream-2' : '/ws-stream';
+    const wsUrl = `wss://${window.location.host}${wsPath}`;
+    if (slot === '2') document.querySelector('h1').textContent = 'ARGUS UPLINK — CAM 2';
 
     let ws = null;
     let reconnectDelay = 1500;

@@ -1,53 +1,91 @@
 # ARGUS Documentation: Usage Guide
 
-This document outlines how an end user operates the ARGUS platform, from starting the server to utilizing its various features.
+This document outlines how an end user operates the ARGUS platform, from initial setup to utilizing its various features.
 
 ---
 
-## Starting the System
+## Initial Setup
 
 ### Prerequisites
-- Node.js installed.
-- Valid SSL Certificates (`cert.pem` and `key.pem`) generated and placed in the backend directory.
+- Node.js installed (v18+ recommended).
 
-### Running Locally
-To run the system in development mode:
-1. Open two terminal instances.
-2. In the first terminal, navigate to the `backend` directory and run `npm run dev` (or `node server.js`).
-3. In the second terminal, navigate to the `frontend` (React/Vite) directory and run `npm run dev`.
+### Installation
 
-*Note: You will need to accept the self-signed certificate warnings in your browser (click "Advanced" -> "Proceed") for both the frontend URL and the backend HTTPS API/WebSocket URLs.*
+1. **Install backend dependencies:**
+   ```bash
+   cd backend
+   npm install
+   ```
+
+2. **Generate SSL certificates and download AI models:**
+   ```bash
+   npm run setup
+   ```
+   This runs `generate-certs.js` (creates `cert.pem` and `key.pem` in the backend directory) and `download-models.js` (fetches the required `face-api.js` model weights into `/models`).
+
+3. **Install frontend dependencies:**
+   ```bash
+   cd ../frontend
+   npm install
+   ```
 
 ---
 
-## Using the Live Camera Face Recognition
+## Running Locally
 
-1. **Accessing the Dashboard (Viewer):**
-   Navigate to the frontend React application on your laptop or monitoring computer. Go to the Live Camera section.
-2. **Accessing the Streamer Device:**
-   On a mobile phone connected to the same network (or accessing the public domain if deployed), navigate to `https://<backend-ip>:3000/stream-video`.
-3. **Connecting and Streaming:**
-   The backend WebSockets manage the connection. Once both are open, the phone's camera feed will appear on the laptop dashboard, overlaid with facial recognition data.
+Open two terminal instances:
+
+1. **Terminal 1 — Backend:** From the `backend` directory, run:
+   ```bash
+   npm run dev
+   ```
+   The HTTPS server starts on `https://localhost:3000` (also accessible by local IP, e.g. `https://192.168.x.x:3000`).
+
+2. **Terminal 2 — Frontend:** From the `frontend` directory, run:
+   ```bash
+   npm run dev
+   ```
+   The Vite dev server starts on `http://localhost:5173`. Requests to `/api`, `/dataset`, `/models`, `/ws-view`, and `/ws-stream` are automatically proxied to the backend.
+
+> **Note:** The first time you open the frontend or backend URLs in a browser, you will need to accept the self-signed certificate warning (click **Advanced → Proceed**) for both the frontend host and the backend HTTPS URL (`https://localhost:3000`). This is required for WebSocket and camera access to work correctly.
+
+---
+
+## Using the Live Camera
+
+1. **Open the Dashboard** on your laptop/monitoring computer and navigate to **Live Camera**.
+2. Choose a **feed mode**:
+   - **External Phone:** On a mobile device connected to the same network, navigate to `https://<backend-ip>:3000/stream-video`. The backend WebSocket relay connects the phone's camera to the viewer dashboard automatically.
+   - **Dual Phone:** Two phones stream simultaneously, displayed side by side with independent face recognition and alerts per camera. Navigate Phone 1 to `https://<backend-ip>:3000/stream-video` and Phone 2 to `https://<backend-ip>:3000/stream-video?slot=2`. The URL hints are also shown in the dashboard controls panel while the feed is live.
+   - **Local Device Camera:** Click the option to use the host machine's webcam directly in the browser.
+3. Once streaming, the canvas overlay displays real-time bounding boxes, matched names, and confidence scores.
+4. When a known face is detected, an alert is automatically logged to the Activity Log and Alerts page, tagged with the camera that detected it (e.g. `Camera 1 — Match Detected: JOHN DOE (92%)`). A 30-second cooldown per person per camera prevents duplicate alerts for the same face staying in frame.
+
+## Using Find Matches
+
+1. Navigate to the **Find Matches** page.
+2. Use the upload area to select or drag-and-drop an image of the subject.
+3. The system scans the uploaded face against all profiles in the Case Profiles dataset and returns ranked matches with confidence scores.
 
 ## Using the AI Aging Feature
 
-1. Navigate to the **AI Aging** page on the frontend dashboard.
-2. Use the provided upload area to select or drag-and-drop an image of the subject.
-3. Initiate the aging simulation. 
-4. The system will process the image, visually update the UI with the aged prediction, and display whether it found a match in the dataset alongside the highest confidence score.
+1. Navigate to the **AI Aging** page.
+2. Upload an image of the subject using the drag-and-drop area.
+3. Initiate the aging simulation. The system processes the image and displays the visually aged result.
+4. After simulation completes, the aged image is automatically scanned against the dataset and the closest match (if any) is displayed with its confidence score.
 
-## Managing the Dataset
+## Managing Case Profiles
 
-1. Navigate to the **Dataset** or **Profiles** page on the frontend.
-2. To add a known individual, upload their photo and provide their name as the subject identifier.
-3. The system automatically syncs this with the backend, making the new face available for immediate recognition on the Live Camera feed.
-4. You can also delete outdated or incorrect profiles from this view.
+1. Navigate to the **Case Profiles** page.
+2. To add a known individual, click the upload control, provide their name, and select their photo.
+3. The backend saves the image to the `/dataset` directory and it becomes immediately available for recognition across all modules (Live Camera, Find Matches, AI Aging).
+4. To remove a profile, select it and use the delete option. The file is permanently removed from the server.
 
 ## Reviewing Logs and Alerts
 
-1. Navigate to the **Alerts & Logs** page.
-2. Here, a tabular feed displays recent network activity, matched faces, and system notifications.
-3. Click on individual logs to expand them, and use the provided UI buttons to mark logs as "Reviewed" once they have been acknowledged by the security team.
+1. Navigate to the **Alerts** page for a focused view of unreviewed high-severity events, or the **Activity Log** page for the full history.
+2. Log entries display the event time, activity description, type, and severity.
+3. Use the **Mark as Reviewed** action on individual entries to acknowledge them and remove them from the active alerts count.
 
 ---
 *End of Document*

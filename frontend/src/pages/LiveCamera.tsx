@@ -1,134 +1,69 @@
-import { useState, useEffect, useRef } from 'react';
-import { Camera, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Camera, RefreshCw, Plus, Minus } from 'lucide-react';
 import './LiveCamera.css';
 
 declare global {
-  interface Window {
-    faceapi: any;
-  }
+  interface Window { faceapi: any; }
 }
 
-export function LiveCamera() {
-    const [isLive, setIsLive] = useState(false);
-    const [feedMode, setFeedMode] = useState<'phone' | 'device'>('phone');
-    const [statusText, setStatusText] = useState('OFFLINE');
-    const [matches, setMatches] = useState<{name: string, conf: number}[]>([]);
-    const [modelsLoaded, setModelsLoaded] = useState(false);
-    const [deviceCamError, setDeviceCamError] = useState<string | null>(null);
+const DETECT_INTERVAL_MS = 125;       // ~8fps inference
+const ALERT_COOLDOWN_MS  = 30_000;    // 30s idempotency window per camera per person
+const MAX_CAMERAS        = 6;
 
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const wsRef = useRef<WebSocket | null>(null);
-    const pcRef = useRef<RTCPeerConnection | null>(null);
-    const faceMatcherRef = useRef<any>(null);
-    const requestRef = useRef<number>(0);
-    // Frame-lock: prevents async detections from stacking up
-    const detectingRef = useRef<boolean>(false);
-    // Throttle: target ~8 inference frames per second
-    const lastDetectTimeRef = useRef<number>(0);
-    const DETECT_INTERVAL_MS = 125; // ~8fps inference
-    // Debounce matches updates to avoid flooding React re-renders
-    const pendingMatchesRef = useRef<{name: string, conf: number}[]>([]);
+// ─── PhoneFeed ────────────────────────────────────────────────────────────────
+// Self-contained component: manages its own WS, WebRTC, and detection loop.
+// Receives the shared faceMatcher and alertCooldown refs from the parent.
 
-    // Load FaceAPI Models
+interface MatchResult { name: string; conf: number; }
+
+interface PhoneFeedProps {
+    slot: number;
+    isLive: boolean;
+    faceMatcherRef: { current: any };
+    alertCooldownRef: { current: Map<string, number> };
+    onMatchesChange: (slot: number, matches: MatchResult[]) => void;
+}
+
+function PhoneFeed({ slot, isLive, faceMatcherRef, alertCooldownRef, onMatchesChange }: PhoneFeedProps) {
+    const [status, setStatus] = useState('OFFLINE');
+    const [matches, setMatches] = useState<MatchResult[]>([]);
+
+    const videoRef    = useRef<HTMLVideoElement>(null);
+    const canvasRef   = useRef<HTMLCanvasElement>(null);
+    const wsRef       = useRef<WebSocket | null>(null);
+    const pcRef       = useRef<RTCPeerConnection | null>(null);
+    const requestRef  = useRef<number>(0);
+    const detectingRef = useRef(false);
+    const lastDetectRef = useRef(0);
+    const pendingRef  = useRef<MatchResult[]>([]);
+
+    // Slot 1 keeps the legacy /ws-view path for backward compat
+    const wsPath      = slot === 1 ? '/ws-view' : `/ws-view-${slot}`;
+    const cameraLabel = `Camera ${slot}`;
+
+    const setMatchesAndNotify = useCallback((m: MatchResult[]) => {
+        setMatches(m);
+        onMatchesChange(slot, m);
+    }, [slot, onMatchesChange]);
+
+    // ── WS + WebRTC ──────────────────────────────────────────────────────────
     useEffect(() => {
-        let isMounted = true;
-        const initFaceApi = async () => {
-            try {
-                const faceapi = window.faceapi;
-                if (!faceapi) {
-                    if (isMounted) setTimeout(initFaceApi, 500);
-                    return;
-                }
-                
-                setStatusText('LOADING AI MODELS...');
-                const modelUrl = `/models`;
-                const datasetUrl = `/dataset`;
-
-                await faceapi.nets.ssdMobilenetv1.loadFromUri(modelUrl);
-                await faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl);
-                await faceapi.nets.faceRecognitionNet.loadFromUri(modelUrl);
-
-                if (!isMounted) return;
-                setStatusText('BUILDING DATASET...');
-                
-                const res = await fetch(datasetUrl);
-                const images = await res.json();
-                
-                // Fetch and parse all images in parallel to remove sequential bottleneck
-                const descriptorsData = await Promise.all(
-                    images.map(async (filename: string) => {
-                        try {
-                            const img = await faceapi.fetchImage(`${datasetUrl}/${filename}`);
-                            const detections = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
-                            if (detections) {
-                                let label = filename.split('.')[0].replace(/_[0-9]+$/, '').replace(/[_|-]/g, ' ').toUpperCase();
-                                return { label, descriptor: detections.descriptor };
-                            }
-                        } catch (err) {
-                            console.error(`Error processing dataset image ${filename}:`, err);
-                        }
-                        return null;
-                    })
-                );
-
-                const groupedDescriptors = descriptorsData.filter(d => d !== null).reduce((acc: any, curr: any) => {
-                    if (!acc[curr.label]) acc[curr.label] = [];
-                    acc[curr.label].push(curr.descriptor);
-                    return acc;
-                }, {});
-
-                const labeledDescriptors = Object.keys(groupedDescriptors).map(
-                    label => new faceapi.LabeledFaceDescriptors(label, groupedDescriptors[label])
-                );
-
-                if (labeledDescriptors.length > 0 && isMounted) {
-                    // Tighter threshold (0.48 vs 0.55) = more stable, less flip-flopping
-                    faceMatcherRef.current = new faceapi.FaceMatcher(labeledDescriptors, 0.48);
-                }
-                if (isMounted) {
-                    setModelsLoaded(true);
-                    setStatusText(isLive ? 'WAITING FOR STREAM' : 'OFFLINE');
-                }
-            } catch (e) {
-                console.error('AI Loading Error:', e);
-                if (isMounted) setStatusText('AI LOAD ERROR - ACCEPT CERT ON PORT 3000');
-            }
-        };
-
-        if (window.location.protocol === 'https:' || window.location.hostname === 'localhost') {
-           initFaceApi();
-        } else {
-           setStatusText('HTTPS OR LOCALHOST REQUIRED FOR CAMERA');
-        }
-        
-        return () => { isMounted = false; };
-    }, []);
-
-    // WebRTC connection logic — with ICE monitoring and WS auto-reconnect
-    // Only active when feedMode === 'phone'
-    useEffect(() => {
-        let isMounted = true;
-        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-        let reconnectDelay = 1500;
-
-        if (feedMode !== 'phone' || !isLive) {
-            if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+        if (!isLive) {
+            wsRef.current?.close();
+            wsRef.current = null;
             if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
-            if (videoRef.current) {
-                const stream = videoRef.current.srcObject as MediaStream;
-                if (stream) stream.getTracks().forEach(t => t.stop());
-                videoRef.current.srcObject = null;
-            }
-            setStatusText(modelsLoaded ? 'OFFLINE' : 'LOADING AI MODELS...');
-            setMatches([]);
+            if (videoRef.current) videoRef.current.srcObject = null;
+            setStatus('OFFLINE');
+            setMatchesAndNotify([]);
             return;
         }
-        const isHttps = window.location.protocol === 'https:';
-        const wsProtocol = isHttps ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.host}/ws-view`;
 
-        // Helper: cleanly tear down the peer connection
+        const isHttps = window.location.protocol === 'https:';
+        const wsUrl   = `${isHttps ? 'wss:' : 'ws:'}//${window.location.host}${wsPath}`;
+        let reconnectDelay = 1500;
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+        let isMounted = true;
+
         const closePc = () => {
             if (pcRef.current) {
                 pcRef.current.ontrack = null;
@@ -138,13 +73,12 @@ export function LiveCamera() {
                 pcRef.current = null;
             }
             if (videoRef.current) videoRef.current.srcObject = null;
-            setMatches([]);
+            setMatchesAndNotify([]);
         };
 
         const connect = () => {
             if (!isMounted) return;
-            if (isMounted) setStatusText('CONNECTING TO SERVER...');
-
+            setStatus('CONNECTING...');
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 
@@ -153,9 +87,7 @@ export function LiveCamera() {
                 const msg = JSON.parse(event.data);
 
                 if (msg.type === 'offer') {
-                    // Always close any existing PC before handling a fresh offer
                     closePc();
-
                     const pc = new RTCPeerConnection({
                         iceServers: [
                             { urls: 'stun:stun.l.google.com:19302' },
@@ -170,65 +102,44 @@ export function LiveCamera() {
                             videoRef.current.srcObject = e.streams[0];
                             videoRef.current.play().catch(console.error);
                         }
-                        setStatusText('LIVE VIEW');
+                        setStatus('LIVE VIEW');
                     };
 
                     pc.onicecandidate = (e) => {
-                        if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
+                        if (e.candidate && wsRef.current?.readyState === WebSocket.OPEN)
                             wsRef.current.send(JSON.stringify({ type: 'ice', candidate: e.candidate }));
-                        }
                     };
 
-                    // Monitor ICE connection health and auto-recover
                     pc.oniceconnectionstatechange = () => {
                         if (!isMounted) return;
-                        const state = pc.iceConnectionState;
-                        console.log('[ARGUS] ICE state:', state);
-
-                        if (state === 'disconnected') {
-                            // Short blip — try ICE restart instead of full teardown
-                            setStatusText('STREAM UNSTABLE (reconnecting...)');
-                            // Trigger ICE restart by sending a new offer from the phone side
-                            // The viewer can only signal this via WS — tell the streamer to restart
-                            if (wsRef.current?.readyState === WebSocket.OPEN) {
-                                wsRef.current.send(JSON.stringify({ type: 'request-restart' }));
-                            }
-                        } else if (state === 'failed') {
-                            // Hard failure — close PC, the next offer from the phone will set up fresh
-                            setStatusText('STREAM LOST (awaiting phone...)');
-                            closePc();
-                        } else if (state === 'closed') {
-                            setStatusText('STREAM OFFLINE (Awaiting Phone...)');
-                            closePc();
-                        } else if (state === 'connected' || state === 'completed') {
-                            setStatusText('LIVE VIEW');
-                        }
+                        const s = pc.iceConnectionState;
+                        if (s === 'disconnected') {
+                            setStatus('UNSTABLE...');
+                            wsRef.current?.send(JSON.stringify({ type: 'request-restart' }));
+                        } else if (s === 'failed') { setStatus('STREAM LOST'); closePc(); }
+                        else if (s === 'closed')   { setStatus('OFFLINE');     closePc(); }
+                        else if (s === 'connected' || s === 'completed') setStatus('LIVE VIEW');
                     };
 
                     try {
                         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
                         const answer = await pc.createAnswer();
                         await pc.setLocalDescription(answer);
-                        if (wsRef.current?.readyState === WebSocket.OPEN) {
+                        if (wsRef.current?.readyState === WebSocket.OPEN)
                             wsRef.current.send(JSON.stringify({ type: 'answer', sdp: pc.localDescription }));
-                        }
                     } catch (err) {
-                        console.error('[ARGUS] SDP negotiation error:', err);
+                        console.error(`[ARGUS] Cam ${slot} SDP error:`, err);
                         closePc();
                     }
 
                 } else if (msg.type === 'ice' && pcRef.current) {
-                    try {
-                        if (msg.candidate) await pcRef.current.addIceCandidate(new RTCIceCandidate(msg.candidate));
-                    } catch (err) {
-                        // Stale candidate — safe to ignore
-                        console.warn('[ARGUS] Stale ICE candidate, ignoring:', err);
-                    }
+                    try { if (msg.candidate) await pcRef.current.addIceCandidate(new RTCIceCandidate(msg.candidate)); }
+                    catch { /* stale candidate */ }
                 } else if (msg.type === 'streamer-gone') {
-                    setStatusText('STREAM OFFLINE (Awaiting Phone...)');
+                    setStatus('AWAITING PHONE...');
                     closePc();
                 } else if (msg.type === 'streamer-present') {
-                    setStatusText('PHONE CONNECTED (Awaiting Video...)');
+                    setStatus('PHONE CONNECTED...');
                 }
             };
 
@@ -236,336 +147,519 @@ export function LiveCamera() {
                 if (!isMounted) return;
                 wsRef.current = null;
                 closePc();
-                // Auto-reconnect WebSocket with exponential backoff
-                setStatusText(`CONNECTION LOST — retrying in ${Math.round(reconnectDelay / 1000)}s...`);
+                setStatus('RECONNECTING...');
                 reconnectTimer = setTimeout(() => {
                     reconnectDelay = Math.min(reconnectDelay * 2, 15000);
                     connect();
                 }, reconnectDelay);
             };
 
-            ws.onerror = () => {
-                if (isMounted) setStatusText('WSS ERROR — check cert on port 3000');
-                // onclose will fire after onerror, triggering reconnect
-            };
+            ws.onerror = () => { if (isMounted) setStatus('WSS ERROR'); };
         };
 
         connect();
-
         return () => {
             isMounted = false;
             if (reconnectTimer) clearTimeout(reconnectTimer);
-            if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+            wsRef.current?.close();
+            wsRef.current = null;
             closePc();
         };
-    }, [isLive, modelsLoaded, feedMode]);
+    }, [isLive, wsPath]);
 
-    // Device camera mode — use laptop/device webcam directly
+    // ── Detection Loop (mounted once, runs forever) ───────────────────────────
+    useEffect(() => {
+        const loop: FrameRequestCallback = () => {
+            const now = performance.now();
+            if (now - lastDetectRef.current < DETECT_INTERVAL_MS || detectingRef.current) {
+                requestRef.current = requestAnimationFrame(loop); return;
+            }
+            const video = videoRef.current, canvas = canvasRef.current, faceapi = window.faceapi;
+            if (!video || !canvas || !faceapi || video.paused || video.ended
+                || !video.srcObject || video.videoWidth === 0 || video.clientWidth === 0) {
+                requestRef.current = requestAnimationFrame(loop); return;
+            }
+            const dW = video.clientWidth, dH = video.clientHeight;
+            lastDetectRef.current = now;
+            detectingRef.current  = true;
+            const iW = video.videoWidth, iH = video.videoHeight;
+
+            faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors()
+                .then((detections: any[]) => {
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return;
+                    if (canvas.width !== dW || canvas.height !== dH) { canvas.width = dW; canvas.height = dH; }
+                    ctx.clearRect(0, 0, dW, dH);
+
+                    // objectFit:cover scaling — keeps bounding boxes aligned with visible pixels
+                    const vA = iW / iH, dA = dW / dH;
+                    let sX: number, sY: number, oX: number, oY: number;
+                    if (vA > dA) { sY = dH / iH; sX = sY; oX = (dW - iW * sX) / 2; oY = 0; }
+                    else         { sX = dW / iW; sY = sX; oX = 0; oY = (dH - iH * sY) / 2; }
+
+                    const active: MatchResult[] = [];
+                    detections.forEach((det: any) => {
+                        let color = '#555963', label = 'UNKNOWN';
+                        if (faceMatcherRef.current) {
+                            const best = faceMatcherRef.current.findBestMatch(det.descriptor);
+                            if (best.label !== 'unknown') {
+                                color = '#f0a832';
+                                const conf = Math.min(100, Math.max(0, Math.round((1 - best.distance) * 100)));
+                                label = `${best.label} — ${conf}%`;
+                                active.push({ name: best.label, conf });
+
+                                // Idempotent alert: one POST per person per camera per cooldown window
+                                const key      = `${cameraLabel}:${best.label.toLowerCase()}`;
+                                const alertNow = Date.now();
+                                if ((alertNow - (alertCooldownRef.current.get(key) ?? 0)) >= ALERT_COOLDOWN_MS) {
+                                    alertCooldownRef.current.set(key, alertNow);
+                                    fetch('/api/logs', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            activity: `${cameraLabel} — Match Detected: ${best.label} (${conf}%)`,
+                                            type: 'face-match',
+                                            severity: 'high'
+                                        })
+                                    }).catch(console.error);
+                                }
+                            }
+                        }
+                        const rb = det.detection.box;
+                        const x = rb.x * sX + oX, y = rb.y * sY + oY, w = rb.width * sX, h = rb.height * sY;
+                        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+                        ctx.fillStyle = color;   ctx.fillRect(x, y - 22, w, 22);
+                        ctx.fillStyle = color === '#f0a832' ? '#000' : '#fff';
+                        ctx.font = 'bold 11px "IBM Plex Mono", monospace';
+                        ctx.fillText(label, x + 4, y - 6);
+                    });
+
+                    // Debounce: only re-render when matches actually change
+                    const prev = pendingRef.current;
+                    if (active.length !== prev.length ||
+                        active.some((m, i) => m.name !== prev[i]?.name || m.conf !== prev[i]?.conf)) {
+                        pendingRef.current = active;
+                        setMatchesAndNotify(active);
+                    }
+                })
+                .catch((e: any) => console.error('Detection error:', e))
+                .finally(() => { detectingRef.current = false; });
+
+            requestRef.current = requestAnimationFrame(loop);
+        };
+        requestRef.current = requestAnimationFrame(loop);
+        return () => { if (requestRef.current) cancelAnimationFrame(requestRef.current); };
+    }, []);
+
+    const isLiveView = status === 'LIVE VIEW';
+
+    return (
+        <div className="cam-feed-wrapper">
+            <div className="cam-feed-header">
+                <span className="cam-label mono">CAM {slot}</span>
+                <span className={`badge mono ${isLiveView ? 'badge-green' : status.includes('ERROR') || status.includes('LOST') ? 'badge-red' : 'badge-amber'}`}>
+                    {status}
+                </span>
+            </div>
+            <div className="lc-viewport" style={{ position: 'relative', background: '#000', overflow: 'hidden' }}>
+                <div className="brackets top-left" /><div className="brackets top-right" />
+                <div className="brackets bottom-left" /><div className="brackets bottom-right" />
+                {isLiveView && (
+                    <div className="rec-indicator mono" style={{ zIndex: 10 }}>
+                        <span className="rec-dot" /> REC
+                    </div>
+                )}
+                {isLive ? (
+                    <>
+                        <video ref={videoRef} autoPlay playsInline muted
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <canvas ref={canvasRef}
+                            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 5, pointerEvents: 'none' }} />
+                    </>
+                ) : (
+                    <div className="lc-offline-view">
+                        <Camera size={32} color="var(--text-tertiary)" />
+                        <p>Offline</p>
+                    </div>
+                )}
+            </div>
+            <div className="cam-matches-list">
+                {matches.length === 0
+                    ? <div className="cam-no-match mono">{isLiveView ? 'No matches in frame' : '—'}</div>
+                    : matches.map((m, i) => (
+                        <div key={i} className="match-row">
+                            <strong>{m.name}</strong>
+                            <span className="mono" style={{ color: 'var(--accent)' }}>{m.conf}%</span>
+                        </div>
+                    ))
+                }
+            </div>
+        </div>
+    );
+}
+
+// ─── LiveCamera ───────────────────────────────────────────────────────────────
+
+export function LiveCamera() {
+    const [isLive, setIsLive]             = useState(false);
+    const [feedMode, setFeedMode]         = useState<'phone' | 'device'>('phone');
+    const [cameraCount, setCameraCount]   = useState(1);
+    const [modelsLoaded, setModelsLoaded] = useState(false);
+    const [loadStatus, setLoadStatus]     = useState('OFFLINE');
+    const [deviceStatus, setDeviceStatus] = useState('OFFLINE');
+    const [deviceError, setDeviceError]   = useState<string | null>(null);
+    const [devMatches, setDevMatches]     = useState<MatchResult[]>([]);
+    const [allMatches, setAllMatches]     = useState<Map<number, MatchResult[]>>(new Map());
+
+    // Shared across all phone feeds
+    const faceMatcherRef   = useRef<any>(null);
+    const alertCooldownRef = useRef<Map<string, number>>(new Map());
+
+    // Device-camera-specific refs
+    const devVideoRef    = useRef<HTMLVideoElement>(null);
+    const devCanvasRef   = useRef<HTMLCanvasElement>(null);
+    const devRequestRef  = useRef<number>(0);
+    const devDetecting   = useRef(false);
+    const devLastDetect  = useRef(0);
+    const devPending     = useRef<MatchResult[]>([]);
+
+    // ── AI Model Loading (shared by all feeds) ────────────────────────────────
+    useEffect(() => {
+        let isMounted = true;
+        const initFaceApi = async () => {
+            try {
+                const faceapi = window.faceapi;
+                if (!faceapi) { if (isMounted) setTimeout(initFaceApi, 500); return; }
+                setLoadStatus('LOADING AI MODELS...');
+                await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
+                await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+                await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+                if (!isMounted) return;
+                setLoadStatus('BUILDING DATASET...');
+                const images: string[] = await (await fetch('/dataset')).json();
+                const descriptorsData = await Promise.all(
+                    images.map(async (filename: string) => {
+                        try {
+                            const img = await faceapi.fetchImage(`/dataset/${filename}`);
+                            const det = await faceapi.detectSingleFace(img).withFaceLandmarks().withFaceDescriptor();
+                            if (det) {
+                                const label = filename.split('.')[0].replace(/_[0-9]+$/, '').replace(/[_|-]/g, ' ').toUpperCase();
+                                return { label, descriptor: det.descriptor };
+                            }
+                        } catch (e) { console.error(`Error processing ${filename}:`, e); }
+                        return null;
+                    })
+                );
+                const grouped = descriptorsData.filter(Boolean).reduce((acc: any, curr: any) => {
+                    if (!acc[curr.label]) acc[curr.label] = [];
+                    acc[curr.label].push(curr.descriptor);
+                    return acc;
+                }, {});
+                const labeled = Object.keys(grouped).map(
+                    label => new faceapi.LabeledFaceDescriptors(label, grouped[label])
+                );
+                if (labeled.length > 0 && isMounted) faceMatcherRef.current = new faceapi.FaceMatcher(labeled, 0.48);
+                if (isMounted) { setModelsLoaded(true); setLoadStatus('READY'); }
+            } catch (e) {
+                console.error('AI Loading Error:', e);
+                if (isMounted) setLoadStatus('AI LOAD ERROR — ACCEPT CERT ON PORT 3000');
+            }
+        };
+        if (window.location.protocol === 'https:' || window.location.hostname === 'localhost') initFaceApi();
+        else setLoadStatus('HTTPS OR LOCALHOST REQUIRED');
+        return () => { isMounted = false; };
+    }, []);
+
+    // ── Device Camera ─────────────────────────────────────────────────────────
     useEffect(() => {
         let isMounted = true;
         let stream: MediaStream | null = null;
-
         if (!isLive || feedMode !== 'device') {
-            // Clean up device stream if switching away
-            if (videoRef.current) videoRef.current.srcObject = null;
-            if (feedMode !== 'device') setDeviceCamError(null);
+            if (devVideoRef.current) devVideoRef.current.srcObject = null;
+            if (feedMode !== 'device') setDeviceError(null);
+            setDeviceStatus('OFFLINE');
             return;
         }
-
-        setStatusText('STARTING DEVICE CAMERA...');
-        setDeviceCamError(null);
-
-        const startDeviceCam = async () => {
+        setDeviceStatus('STARTING...');
+        setDeviceError(null);
+        (async () => {
             try {
-                if (!navigator.mediaDevices?.getUserMedia) {
-                    throw new Error('Camera API not available — needs HTTPS');
-                }
+                if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera API unavailable — needs HTTPS');
                 stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
                     audio: false
                 });
                 if (!isMounted) { stream.getTracks().forEach(t => t.stop()); return; }
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    videoRef.current.play().catch(console.error);
-                }
-                if (isMounted) setStatusText('LIVE VIEW');
+                if (devVideoRef.current) { devVideoRef.current.srcObject = stream; devVideoRef.current.play().catch(console.error); }
+                if (isMounted) setDeviceStatus('LIVE VIEW');
             } catch (err: any) {
                 if (!isMounted) return;
-                const msg = err?.message || 'Camera access denied';
-                setDeviceCamError(msg);
-                setStatusText('DEVICE CAM ERROR');
+                setDeviceError(err?.message || 'Camera access denied');
+                setDeviceStatus('DEVICE CAM ERROR');
             }
-        };
-        startDeviceCam();
-
+        })();
         return () => {
             isMounted = false;
-            if (stream) stream.getTracks().forEach(t => t.stop());
-            if (videoRef.current) videoRef.current.srcObject = null;
-            setMatches([]);
+            stream?.getTracks().forEach(t => t.stop());
+            if (devVideoRef.current) devVideoRef.current.srcObject = null;
+            setDevMatches([]);
         };
     }, [isLive, feedMode]);
 
-
-    // Detection Loop — fixed version
-    const detectLoop = () => {
-        const now = performance.now();
-
-        // Throttle: only run inference at ~8fps to avoid overloading
-        if (now - lastDetectTimeRef.current < DETECT_INTERVAL_MS) {
-            requestRef.current = requestAnimationFrame(detectLoop);
-            return;
-        }
-
-        // Frame-lock: if a detection is already in-flight, skip this frame
-        if (detectingRef.current) {
-            requestRef.current = requestAnimationFrame(detectLoop);
-            return;
-        }
-
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        const faceapi = window.faceapi;
-
-        if (!video || !canvas || !faceapi || video.paused || video.ended || !video.srcObject
-            || video.videoWidth === 0 || video.videoHeight === 0) {
-            requestRef.current = requestAnimationFrame(detectLoop);
-            return;
-        }
-
-        const displayW = video.clientWidth;
-        const displayH = video.clientHeight;
-        if (displayW === 0 || displayH === 0) {
-            requestRef.current = requestAnimationFrame(detectLoop);
-            return;
-        }
-
-        lastDetectTimeRef.current = now;
-        detectingRef.current = true;
-
-        // Run detection on the intrinsic video resolution (the actual pixels)
-        const intrinsicW = video.videoWidth;
-        const intrinsicH = video.videoHeight;
-
-        faceapi.detectAllFaces(video)
-            .withFaceLandmarks()
-            .withFaceDescriptors()
-            .then((detections: any[]) => {
-                const ctx = canvas.getContext('2d');
-                if (!ctx) return;
-
-                // Size the canvas to match the displayed video element
-                if (canvas.width !== displayW || canvas.height !== displayH) {
-                    canvas.width = displayW;
-                    canvas.height = displayH;
-                }
-                ctx.clearRect(0, 0, displayW, displayH);
-
-                // objectFit:cover scaling: compute the actual rendered sub-rect of the video
-                // so that bounding boxes line up with the visible portion of the frame.
-                const videoAspect = intrinsicW / intrinsicH;
-                const displayAspect = displayW / displayH;
-                let scaleX: number, scaleY: number, offsetX: number, offsetY: number;
-
-                if (videoAspect > displayAspect) {
-                    // Video is wider than display → letterbox on sides
-                    scaleY = displayH / intrinsicH;
-                    scaleX = scaleY;
-                    offsetX = (displayW - intrinsicW * scaleX) / 2;
-                    offsetY = 0;
-                } else {
-                    // Video is taller than display → letterbox on top/bottom
-                    scaleX = displayW / intrinsicW;
-                    scaleY = scaleX;
-                    offsetX = 0;
-                    offsetY = (displayH - intrinsicH * scaleY) / 2;
-                }
-
-                const activeMatches: {name: string, conf: number}[] = [];
-
-                detections.forEach((detection: any) => {
-                    let boxColor = '#555963';
-                    let labelText = 'UNKNOWN';
-
-                    if (faceMatcherRef.current) {
-                        const bestMatch = faceMatcherRef.current.findBestMatch(detection.descriptor);
-                        if (bestMatch.label !== 'unknown') {
-                            boxColor = '#f0a832';
-                            const cappedConf = Math.min(100, Math.max(0, Math.round((1 - bestMatch.distance) * 100)));
-                            labelText = `${bestMatch.label} — ${cappedConf}%`;
-                            activeMatches.push({ name: bestMatch.label, conf: cappedConf });
-                        }
-                    }
-
-                    // Map raw video coords → displayed canvas coords
-                    const rawBox = detection.detection.box;
-                    const x = rawBox.x * scaleX + offsetX;
-                    const y = rawBox.y * scaleY + offsetY;
-                    const w = rawBox.width * scaleX;
-                    const h = rawBox.height * scaleY;
-
-                    // Box
-                    ctx.strokeStyle = boxColor;
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(x, y, w, h);
-
-                    // Label background
-                    ctx.fillStyle = boxColor;
-                    ctx.fillRect(x, y - 22, w, 22);
-
-                    // Label text
-                    ctx.fillStyle = boxColor === '#f0a832' ? '#000' : '#fff';
-                    ctx.font = 'bold 11px "IBM Plex Mono", monospace';
-                    ctx.fillText(labelText, x + 4, y - 6);
-                });
-
-                // Debounce: only trigger React re-render if matches actually changed
-                const prev = pendingMatchesRef.current;
-                const changed = activeMatches.length !== prev.length ||
-                    activeMatches.some((m, i) => m.name !== prev[i]?.name || m.conf !== prev[i]?.conf);
-                if (changed) {
-                    pendingMatchesRef.current = activeMatches;
-                    setMatches(activeMatches);
-                }
-            })
-            .catch((e: any) => console.error('Face detection loop error:', e))
-            .finally(() => {
-                detectingRef.current = false;
-            });
-
-        requestRef.current = requestAnimationFrame(detectLoop);
-    };
-
+    // ── Device Camera Detection Loop ──────────────────────────────────────────
     useEffect(() => {
-        requestRef.current = requestAnimationFrame(detectLoop);
-        return () => {
-            if (requestRef.current) cancelAnimationFrame(requestRef.current);
-        };
+        const cameraLabel = 'Live Camera';
+        const loop: FrameRequestCallback = () => {
+            const now = performance.now();
+            if (now - devLastDetect.current < DETECT_INTERVAL_MS || devDetecting.current) {
+                devRequestRef.current = requestAnimationFrame(loop); return;
+            }
+            const video = devVideoRef.current, canvas = devCanvasRef.current, faceapi = window.faceapi;
+            if (!video || !canvas || !faceapi || video.paused || video.ended
+                || !video.srcObject || video.videoWidth === 0 || video.clientWidth === 0) {
+                devRequestRef.current = requestAnimationFrame(loop); return;
+            }
+            const dW = video.clientWidth, dH = video.clientHeight;
+            devLastDetect.current = now;
+            devDetecting.current  = true;
+            const iW = video.videoWidth, iH = video.videoHeight;
 
+            faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors()
+                .then((detections: any[]) => {
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return;
+                    if (canvas.width !== dW || canvas.height !== dH) { canvas.width = dW; canvas.height = dH; }
+                    ctx.clearRect(0, 0, dW, dH);
+                    const vA = iW / iH, dA = dW / dH;
+                    let sX: number, sY: number, oX: number, oY: number;
+                    if (vA > dA) { sY = dH / iH; sX = sY; oX = (dW - iW * sX) / 2; oY = 0; }
+                    else         { sX = dW / iW; sY = sX; oX = 0; oY = (dH - iH * sY) / 2; }
+                    const active: MatchResult[] = [];
+                    detections.forEach((det: any) => {
+                        let color = '#555963', label = 'UNKNOWN';
+                        if (faceMatcherRef.current) {
+                            const best = faceMatcherRef.current.findBestMatch(det.descriptor);
+                            if (best.label !== 'unknown') {
+                                color = '#f0a832';
+                                const conf = Math.min(100, Math.max(0, Math.round((1 - best.distance) * 100)));
+                                label = `${best.label} — ${conf}%`;
+                                active.push({ name: best.label, conf });
+                                const key = `${cameraLabel}:${best.label.toLowerCase()}`;
+                                const alertNow = Date.now();
+                                if ((alertNow - (alertCooldownRef.current.get(key) ?? 0)) >= ALERT_COOLDOWN_MS) {
+                                    alertCooldownRef.current.set(key, alertNow);
+                                    fetch('/api/logs', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            activity: `${cameraLabel} — Match Detected: ${best.label} (${conf}%)`,
+                                            type: 'face-match', severity: 'high'
+                                        })
+                                    }).catch(console.error);
+                                }
+                            }
+                        }
+                        const rb = det.detection.box;
+                        const x = rb.x * sX + oX, y = rb.y * sY + oY, w = rb.width * sX, h = rb.height * sY;
+                        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+                        ctx.fillStyle = color;   ctx.fillRect(x, y - 22, w, 22);
+                        ctx.fillStyle = color === '#f0a832' ? '#000' : '#fff';
+                        ctx.font = 'bold 11px "IBM Plex Mono", monospace';
+                        ctx.fillText(label, x + 4, y - 6);
+                    });
+                    const prev = devPending.current;
+                    if (active.length !== prev.length ||
+                        active.some((m, i) => m.name !== prev[i]?.name || m.conf !== prev[i]?.conf)) {
+                        devPending.current = active;
+                        setDevMatches(active);
+                    }
+                })
+                .catch((e: any) => console.error('Device detection error:', e))
+                .finally(() => { devDetecting.current = false; });
+            devRequestRef.current = requestAnimationFrame(loop);
+        };
+        devRequestRef.current = requestAnimationFrame(loop);
+        return () => { if (devRequestRef.current) cancelAnimationFrame(devRequestRef.current); };
     }, []);
 
+    // ── Callback for PhoneFeed match updates ──────────────────────────────────
+    const handleMatchesChange = useCallback((slot: number, m: MatchResult[]) => {
+        setAllMatches(prev => {
+            const next = new Map(prev);
+            if (m.length === 0) next.delete(slot); else next.set(slot, m);
+            return next;
+        });
+    }, []);
+
+    const totalMatches = feedMode === 'device'
+        ? devMatches.length
+        : Array.from(allMatches.values()).reduce((s, m) => s + m.length, 0);
+
+    // Grid column count: 1→1, 2→2, 3-4→2, 5-6→3
+    const cols  = cameraCount === 1 ? 1 : cameraCount <= 4 ? 2 : 3;
+    const slots = Array.from({ length: cameraCount }, (_, i) => i + 1);
+    const devIsLive = deviceStatus === 'LIVE VIEW';
 
     return (
         <div className="live-camera-page">
+            {/* Status Bar */}
             <div className="lc-top-row">
                 <div className="lc-status-box">
-                    <span className="lc-label mono">LIVE FEED:</span>
-                    <span className={`badge ${(statusText === 'LIVE VIEW' || statusText.includes('PHONE CONNECTED')) ? 'badge-green' : (statusText.includes('ERROR') || statusText.includes('LOST') ? 'badge-red' : 'badge-amber')} mono`}>
-                        {statusText}
-                    </span>
+                    {feedMode === 'phone' ? (
+                        <>
+                            <span className="lc-label mono">CAMERAS:</span>
+                            <span className="badge badge-blue mono">{cameraCount} ACTIVE</span>
+                        </>
+                    ) : (
+                        <>
+                            <span className="lc-label mono">LIVE FEED:</span>
+                            <span className={`badge mono ${devIsLive ? 'badge-green' : deviceStatus.includes('ERROR') ? 'badge-red' : 'badge-amber'}`}>
+                                {deviceStatus}
+                            </span>
+                        </>
+                    )}
+                    {!modelsLoaded && (
+                        <span className="badge badge-amber mono" style={{ marginLeft: 8 }}>{loadStatus}</span>
+                    )}
                 </div>
                 <div className="lc-matches-box mono">
-                    MATCHES FOUND: <span className="highlight">{matches.length}</span>
+                    MATCHES FOUND: <span className="highlight">{totalMatches}</span>
                 </div>
             </div>
 
+            {/* Feeds + Controls */}
             <div className="lc-viewport-container">
-                <div className="lc-viewport" style={{ position: 'relative', background: '#000', overflow: 'hidden' }}>
-                    <div className="brackets top-left"></div>
-                    <div className="brackets top-right"></div>
-                    <div className="brackets bottom-left"></div>
-                    <div className="brackets bottom-right"></div>
+                {feedMode === 'phone' ? (
+                    <div className="lc-feeds-grid" data-cols={cols}>
+                        {slots.map(slot => (
+                            <PhoneFeed
+                                key={slot}
+                                slot={slot}
+                                isLive={isLive}
+                                faceMatcherRef={faceMatcherRef}
+                                alertCooldownRef={alertCooldownRef}
+                                onMatchesChange={handleMatchesChange}
+                            />
+                        ))}
+                    </div>
+                ) : (
+                    /* Device camera — single viewport */
+                    <div className="lc-viewport" style={{ flex: 3, position: 'relative', background: '#000', overflow: 'hidden' }}>
+                        <div className="brackets top-left" /><div className="brackets top-right" />
+                        <div className="brackets bottom-left" /><div className="brackets bottom-right" />
+                        {devIsLive && (
+                            <div className="rec-indicator mono" style={{ zIndex: 10 }}>
+                                <span className="rec-dot" /> REC
+                            </div>
+                        )}
+                        {isLive ? (
+                            <>
+                                <video ref={devVideoRef} autoPlay playsInline muted
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <canvas ref={devCanvasRef}
+                                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 5, pointerEvents: 'none' }} />
+                            </>
+                        ) : (
+                            <div className="lc-offline-view">
+                                <Camera size={48} color="var(--text-tertiary)" />
+                                <p>Camera Feed Offline — Click Start Camera Feed to begin</p>
+                            </div>
+                        )}
+                    </div>
+                )}
 
-                    {statusText === 'LIVE VIEW' && (
-                        <div className="rec-indicator mono" style={{ zIndex: 10 }}>
-                            <span className="rec-dot"></span> REC
-                        </div>
-                    )}
-                    
-                    {isLive ? (
-                        <>
-                            <video 
-                                ref={videoRef} 
-                                id="video" 
-                                autoPlay 
-                                playsInline 
-                                muted 
-                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            ></video>
-                            <canvas 
-                                ref={canvasRef} 
-                                id="overlay" 
-                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 5, pointerEvents: 'none' }}
-                            ></canvas>
-                        </>
-                    ) : (
-                        <div className="lc-offline-view">
-                            <Camera size={48} color="var(--text-tertiary)" />
-                            <p>Camera Feed Offline — Click Start Camera Feed to start matching</p>
-                        </div>
-                    )}
-                </div>
-
+                {/* Controls Panel */}
                 <div className="lc-controls card">
                     <div className="lc-feed-toggle">
                         <button
                             className={`btn btn-lg ${isLive ? 'btn-danger' : 'btn-primary'}`}
-                            onClick={() => setIsLive(!isLive)}
+                            onClick={() => setIsLive(v => !v)}
                             disabled={!modelsLoaded}
                         >
                             <RefreshCw size={18} className={isLive ? 'spin' : ''} style={{ marginRight: '8px' }} />
-                            {isLive ? 'Stop Camera Feed' : (!modelsLoaded ? 'Loading Models...' : 'Start Camera Feed')}
+                            {isLive ? 'Stop Camera Feed' : !modelsLoaded ? 'Loading Models...' : 'Start Camera Feed'}
                         </button>
                     </div>
+
                     <div className="lc-input-selector">
                         <span className="input-label mono">FEED INPUT:</span>
                         <div className="input-chips">
-                            <button
-                                className={`chip ${feedMode === 'phone' ? 'active' : ''}`}
-                                onClick={() => { setFeedMode('phone'); if (isLive) setStatusText('CONNECTING TO SERVER...'); }}
-                            >
-                                External Phone
+                            <button className={`chip ${feedMode === 'phone' ? 'active' : ''}`}
+                                onClick={() => setFeedMode('phone')}>
+                                External Phone(s)
                             </button>
-                            <button
-                                className={`chip ${feedMode === 'device' ? 'active' : ''}`}
+                            <button className={`chip ${feedMode === 'device' ? 'active' : ''}`}
                                 onClick={() => setFeedMode('device')}
-                                title="Use this device's webcam as the camera feed"
-                            >
+                                title="Use this device's webcam">
                                 This Device
                             </button>
                         </div>
-                        {feedMode === 'device' && deviceCamError && (
+                        {feedMode === 'device' && deviceError && (
                             <p style={{ color: 'var(--error)', fontSize: '12px', margin: '6px 0 0', fontFamily: 'monospace' }}>
-                                ⚠ {deviceCamError}
+                                ⚠ {deviceError}
                             </p>
                         )}
                     </div>
+
+                    {feedMode === 'phone' && (
+                        <>
+                            <div className="lc-cam-count">
+                                <span className="input-label mono">CAMERA COUNT:</span>
+                                <div className="cam-count-controls">
+                                    <button onClick={() => setCameraCount(c => Math.max(1, c - 1))} disabled={cameraCount <= 1}>
+                                        <Minus size={16} />
+                                    </button>
+                                    <span>{cameraCount}</span>
+                                    <button onClick={() => setCameraCount(c => Math.min(MAX_CAMERAS, c + 1))} disabled={cameraCount >= MAX_CAMERAS}>
+                                        <Plus size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                            {isLive && (
+                                <div className="phone-hints">
+                                    {slots.map(slot => (
+                                        <p key={slot} className="mono">
+                                            Phone {slot} → <code>/stream-video{slot > 1 ? `?slot=${slot}` : ''}</code>
+                                        </p>
+                                    ))}
+                                </div>
+                            )}
+                        </>
+                    )}
                 </div>
             </div>
 
-            <div className="card lc-results-card">
-                <div className="card-header">
-                    <h4>Detected Matches: {matches.length}</h4>
-                    {isLive && <span className="badge badge-amber">Scanning...</span>}
+            {/* Device mode match results (phone mode shows results inline per feed) */}
+            {feedMode === 'device' && (
+                <div className="card lc-results-card">
+                    <div className="card-header">
+                        <h4>Detected Matches: {devMatches.length}</h4>
+                        {isLive && <span className="badge badge-amber">Scanning...</span>}
+                    </div>
+                    {!isLive ? (
+                        <div className="empty-state">System offline. Awaiting video feed.</div>
+                    ) : devMatches.length === 0 ? (
+                        <div className="empty-state">
+                            {devIsLive ? 'No known matches currently in frame.' : 'Awaiting video feed...'}
+                        </div>
+                    ) : (
+                        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {devMatches.map((m, i) => (
+                                <div key={i} style={{
+                                    padding: '15px',
+                                    background: 'rgba(240, 168, 50, 0.1)',
+                                    border: '1px solid var(--accent)',
+                                    borderRadius: '8px',
+                                    display: 'flex', justifyContent: 'space-between', color: '#fff'
+                                }}>
+                                    <strong>{m.name}</strong>
+                                    <span className="mono" style={{ color: 'var(--accent)' }}>{m.conf}% CONFIDENCE</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
-                {!isLive ? (
-                    <div className="empty-state">
-                        System offline. Awaiting video feed to begin match detection against known profiles.
-                    </div>
-                ) : matches.length === 0 ? (
-                    <div className="empty-state">
-                        {statusText === 'LIVE VIEW' ? 'No known matches currently detected in frame.' : 'Awaiting video feed...'}
-                    </div>
-                ) : (
-                    <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        {matches.map((m, i) => (
-                            <div key={i} style={{ 
-                                padding: '15px', 
-                                background: 'rgba(240, 168, 50, 0.1)', 
-                                border: '1px solid var(--accent)',
-                                borderRadius: '8px',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                color: '#fff'
-                            }}>
-                                <strong>{m.name}</strong>
-                                <span className="mono" style={{ color: 'var(--accent)' }}>{m.conf}% CONFIDENCE</span>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
+            )}
         </div>
     );
 }

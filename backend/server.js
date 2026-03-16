@@ -52,54 +52,68 @@ const sslOptions = {
 const server = https.createServer(sslOptions, app);
 const wss = new WebSocketServer({ server });
 
-// Connections
-let streamer = null;
-const viewers = new Set();
+// Connections — dynamic channels (slot 1 = default, slot N = /ws-stream-N)
+const streamers = new Map();   // slot -> ws
+const viewers = new Map();     // slot -> Set<ws>
+
+function getViewers(ch) {
+    if (!viewers.has(ch)) viewers.set(ch, new Set());
+    return viewers.get(ch);
+}
 
 wss.on('connection', (ws, req) => {
-    const isStreamer = req.url === '/ws-stream';
+    const url = req.url;
+    const streamerM = url.match(/^\/ws-stream(-(\d+))?$/);
+    const viewerM   = url.match(/^\/ws-view(-(\d+))?$/);
+
+    if (!streamerM && !viewerM) { ws.close(); return; } // unknown path
+
+    const ch = streamerM
+        ? (streamerM[2] ? parseInt(streamerM[2]) : 1)
+        : (viewerM[2]   ? parseInt(viewerM[2])   : 1);
+    const isStreamer = !!streamerM;
+    const chViewers = getViewers(ch);
 
     if (isStreamer) {
-        console.log('📱 Streamer connected');
-        streamer = ws;
-        viewers.forEach(viewer => {
-            if (streamer.readyState === ws.OPEN) streamer.send(JSON.stringify({ type: 'viewer-ready' }));
+        console.log(`📱 Streamer ${ch} connected`);
+        streamers.set(ch, ws);
+        chViewers.forEach(viewer => {
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'viewer-ready' }));
             if (viewer.readyState === ws.OPEN) viewer.send(JSON.stringify({ type: 'streamer-present' }));
         });
     } else {
-        // Treat any other WS path as viewer (e.g., /ws-view)
-        console.log('💻 Viewer connected');
-        viewers.add(ws);
-        if (streamer && streamer.readyState === ws.OPEN) {
-            streamer.send(JSON.stringify({ type: 'viewer-ready' }));
+        console.log(`💻 Viewer connected (channel ${ch})`);
+        chViewers.add(ws);
+        const str = streamers.get(ch);
+        if (str && str.readyState === ws.OPEN) {
+            str.send(JSON.stringify({ type: 'viewer-ready' }));
             if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'streamer-present' }));
         }
     }
 
     ws.on('message', (message) => {
-        // Relay everything
         if (isStreamer) {
-            viewers.forEach(viewer => {
-                if (viewer.readyState === ws.OPEN) {
-                    viewer.send(message.toString());
-                }
+            getViewers(ch).forEach(viewer => {
+                if (viewer.readyState === ws.OPEN) viewer.send(message.toString());
             });
-        } else if (!isStreamer && streamer && streamer.readyState === ws.OPEN) {
-            streamer.send(message.toString());
+        } else {
+            const str = streamers.get(ch);
+            if (str && str.readyState === ws.OPEN) str.send(message.toString());
         }
     });
 
     ws.on('close', () => {
         if (isStreamer) {
-            console.log('📱 Streamer disconnected');
-            streamer = null;
-            viewers.forEach(viewer => {
-                if (viewer.readyState === ws.OPEN) viewer.send(JSON.stringify({ type: 'streamer-gone' }))
+            console.log(`📱 Streamer ${ch} disconnected`);
+            streamers.delete(ch);
+            getViewers(ch).forEach(viewer => {
+                if (viewer.readyState === ws.OPEN) viewer.send(JSON.stringify({ type: 'streamer-gone' }));
             });
         } else {
-            console.log('💻 Viewer disconnected');
-            viewers.delete(ws);
-            if (streamer && streamer.readyState === ws.OPEN) streamer.send(JSON.stringify({ type: 'viewer-gone' }));
+            console.log(`💻 Viewer disconnected (channel ${ch})`);
+            getViewers(ch).delete(ws);
+            const str = streamers.get(ch);
+            if (str && str.readyState === ws.OPEN) str.send(JSON.stringify({ type: 'viewer-gone' }));
         }
     });
 });

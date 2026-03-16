@@ -9,9 +9,10 @@ The primary purpose of ARGUS is to provide a robust, real-time facial recognitio
 
 ## Aim
 ARGUS aims to deliver:
-1. **Real-time Face Recognition:** Low-latency streaming of video from a portable device (like a smartphone) to a central monitor, processing faces against a known database.
-2. **Predictive Analysis (AI Aging):** The ability to simulate the aging process of a subject to compare current images with older database records.
-3. **Comprehensive Monitoring:** Centralized alerting and logging to ensure operators are immediately aware of matches, unknown subjects, and system events.
+1. **Real-time Face Recognition:** Low-latency streaming of video from a portable device (like a smartphone) to a central monitor, processing faces against a known Case Profiles database.
+2. **Standalone Image Matching:** Upload a still image and instantly scan it against the entire dataset to surface ranked matches.
+3. **Predictive Analysis (AI Aging):** Simulate the aging process of a subject and compare the result against database records — useful for long-term investigations and missing persons cases.
+4. **Comprehensive Monitoring:** Centralized alerting and logging to ensure operators are immediately aware of matches, unknown subjects, and system events.
 
 ## End User
 The end users of ARGUS are primarily security personnel, system operators, and investigators who need to monitor live feeds or analyze images against a database of known individuals. They interact with the system via a web-based dashboard on their laptops or desktop computers.

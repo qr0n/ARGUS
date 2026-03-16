@@ -21,12 +21,8 @@ export default defineConfig({
         secure: false,
         changeOrigin: true
       },
-      '/ws-view': {
-        target: 'wss://localhost:3000',
-        secure: false,
-        ws: true
-      },
-      '/ws-stream': {
+      // Covers /ws-stream, /ws-stream-N, /ws-view, /ws-view-N for any N
+      '/ws-': {
         target: 'wss://localhost:3000',
         secure: false,
         ws: true
