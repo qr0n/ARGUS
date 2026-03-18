@@ -97,9 +97,11 @@
   </div>
 
   <script>
-    const slot = new URLSearchParams(window.location.search).get('slot') || '1';
+    const qs = new URLSearchParams(window.location.search);
+    const slot = qs.get('slot') || '1';
+    const authToken = qs.get('token') || localStorage.getItem('argusAuthToken') || '';
     const wsPath = slot === '2' ? '/ws-stream-2' : '/ws-stream';
-    const wsUrl = `wss://${window.location.host}${wsPath}`;
+    const wsUrl = `wss://${window.location.host}${wsPath}${authToken ? `?token=${encodeURIComponent(authToken)}` : ''}`;
     if (slot === '2') document.querySelector('h1').textContent = 'ARGUS UPLINK — CAM 2';
 
     let ws = null;

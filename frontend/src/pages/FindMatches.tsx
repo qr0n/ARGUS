@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { UploadCloud, FileSearch, CheckCircle2, ChevronRight, Activity, Search, Loader2 } from 'lucide-react';
 import './FindMatches.css';
+import { RECOGNITION_CONFIG, clampConfidence, getArgusAuthHeaders, isUsableDetection } from '../recognitionConfig';
 
 declare global {
   interface Window {
@@ -12,11 +13,76 @@ export function FindMatches() {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [isScanning, setIsScanning] = useState(false);
     const [scanComplete, setScanComplete] = useState(false);
-    const [matchResults, setMatchResults] = useState<{name: string, conf: number}[]>([]);
+    const [matchResults, setMatchResults] = useState<{name: string, conf: number, kind: 'known' | 'review' | 'unknown'}[]>([]);
+    const [overlayData, setOverlayData] = useState<{ detections: any[]; results: {name: string, conf: number, kind: 'known' | 'review' | 'unknown'}[] } | null>(null);
     
     const [matcherReady, setMatcherReady] = useState(false);
     const [faceMatcher, setFaceMatcher] = useState<any>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const previewImageRef = useRef<HTMLImageElement>(null);
+    const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+
+    const clearOverlay = () => {
+        const canvas = overlayCanvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        const width = canvas.clientWidth || canvas.width;
+        const height = canvas.clientHeight || canvas.height;
+        if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+        }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+
+    const drawOverlay = (detections: any[], results: {name: string, conf: number, kind: 'known' | 'review' | 'unknown'}[]) => {
+        const img = previewImageRef.current;
+        const canvas = overlayCanvasRef.current;
+        if (!img || !canvas || !img.naturalWidth || !img.naturalHeight) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const dW = img.clientWidth;
+        const dH = img.clientHeight;
+        if (!dW || !dH) return;
+        if (canvas.width !== dW || canvas.height !== dH) {
+            canvas.width = dW;
+            canvas.height = dH;
+        }
+        ctx.clearRect(0, 0, dW, dH);
+
+        const iW = img.naturalWidth, iH = img.naturalHeight;
+        const vA = iW / iH, dA = dW / dH;
+        let sX: number, sY: number, oX: number, oY: number;
+        if (vA > dA) { sY = dH / iH; sX = sY; oX = (dW - iW * sX) / 2; oY = 0; }
+        else         { sX = dW / iW; sY = sX; oX = 0; oY = (dH - iH * sY) / 2; }
+
+        detections.forEach((det, idx) => {
+            const match = results[idx];
+            const isKnown = !!match && match.kind === 'known';
+            const color = isKnown ? '#f0a832' : '#555963';
+            const label = !match || match.kind === 'unknown'
+                ? 'UNKNOWN'
+                : match.kind === 'review'
+                    ? `REVIEW — ${match.name} (${match.conf}%)`
+                    : `${match.name} — ${match.conf}%`;
+
+            const rb = det.detection.box;
+            const x = rb.x * sX + oX, y = rb.y * sY + oY, w = rb.width * sX, h = rb.height * sY;
+            const labelHeight = 22;
+            const labelY = Math.max(0, y - labelHeight);
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+            ctx.fillStyle = color;
+            ctx.fillRect(x, labelY, w, labelHeight);
+            ctx.fillStyle = isKnown ? '#000' : '#fff';
+            ctx.font = 'bold 11px "IBM Plex Mono", monospace';
+            ctx.fillText(label, x + 4, labelY + 15);
+        });
+    };
 
     useEffect(() => {
         let isMounted = true;
@@ -62,7 +128,7 @@ export function FindMatches() {
                 );
                 
                 if (labeledDescriptors.length > 0 && isMounted) {
-                    setFaceMatcher(new faceapi.FaceMatcher(labeledDescriptors, 0.5));
+                    setFaceMatcher(new faceapi.FaceMatcher(labeledDescriptors, RECOGNITION_CONFIG.reviewDistance));
                 }
                 if (isMounted) setMatcherReady(true);
             } catch (e) {
@@ -82,6 +148,7 @@ export function FindMatches() {
                 setSelectedImage(event.target?.result as string);
                 setScanComplete(false);
                 setMatchResults([]);
+                setOverlayData(null);
             };
             reader.readAsDataURL(file);
         }
@@ -98,16 +165,26 @@ export function FindMatches() {
                 setSelectedImage(event.target?.result as string);
                 setScanComplete(false);
                 setMatchResults([]);
+                setOverlayData(null);
             };
             reader.readAsDataURL(file);
         }
     };
+
+    useEffect(() => {
+        if (!overlayData) {
+            clearOverlay();
+            return;
+        }
+        drawOverlay(overlayData.detections, overlayData.results);
+    }, [overlayData, selectedImage]);
 
     const runScan = async () => {
         if (!selectedImage || isScanning || !matcherReady) return;
         setIsScanning(true);
         setScanComplete(false);
         setMatchResults([]);
+        setOverlayData(null);
 
         try {
             const faceapi = window.faceapi;
@@ -116,30 +193,64 @@ export function FindMatches() {
             const detections = await faceapi.detectAllFaces(img).withFaceLandmarks().withFaceDescriptors();
             
             setTimeout(() => {
-                let currentResults = [];
+                const currentResults: {name: string, conf: number, kind: 'known' | 'review' | 'unknown'}[] = [];
                 let hasKnownMatch = false;
 
                 if (detections && faceMatcher) {
                     for (const detection of detections) {
+                        if (!isUsableDetection(detection)) {
+                            currentResults.push({ name: 'unknown', conf: 0, kind: 'unknown' });
+                            continue;
+                        }
                         const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
-                        const conf = Math.round((1 - bestMatch.distance) * 100);
+                        const conf = clampConfidence(bestMatch.distance);
+                        const isKnown = bestMatch.label !== 'unknown' && bestMatch.distance <= RECOGNITION_CONFIG.acceptDistance;
+                        const isReview = bestMatch.label !== 'unknown' && !isKnown;
                         currentResults.push({
-                            name: bestMatch.label,
-                            conf: Math.min(100, Math.max(0, conf))
+                            name: isKnown || isReview ? bestMatch.label : 'unknown',
+                            conf: isKnown || isReview ? conf : 0,
+                            kind: isKnown ? 'known' : isReview ? 'review' : 'unknown'
                         });
 
-                        if (bestMatch.label !== 'unknown') {
+                        if (isKnown) {
                             hasKnownMatch = true;
                             fetch('/api/logs', {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ activity: `Image Scan: Found ${bestMatch.label} (${conf}%)`, type: 'ai-scan', severity: 'warning' })
+                                headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
+                                body: JSON.stringify({
+                                    activity: `Image Scan: Found ${bestMatch.label} (${conf}%)`,
+                                    type: 'ai-scan',
+                                    severity: 'warning',
+                                    modelVersion: RECOGNITION_CONFIG.modelVersion,
+                                    thresholdPolicy: { accept: RECOGNITION_CONFIG.acceptDistance, review: RECOGNITION_CONFIG.reviewDistance },
+                                    matchedLabel: bestMatch.label,
+                                    matchDistance: bestMatch.distance,
+                                    matchConfidence: conf,
+                                    reviewRequired: false
+                                })
+                            }).catch(e => console.error("Failed to log", e));
+                        } else if (isReview) {
+                            fetch('/api/logs', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
+                                body: JSON.stringify({
+                                    activity: `Image Scan: Review Required for ${bestMatch.label} (${conf}%)`,
+                                    type: 'ai-scan',
+                                    severity: 'info',
+                                    modelVersion: RECOGNITION_CONFIG.modelVersion,
+                                    thresholdPolicy: { accept: RECOGNITION_CONFIG.acceptDistance, review: RECOGNITION_CONFIG.reviewDistance },
+                                    matchedLabel: bestMatch.label,
+                                    matchDistance: bestMatch.distance,
+                                    matchConfidence: conf,
+                                    reviewRequired: true
+                                })
                             }).catch(e => console.error("Failed to log", e));
                         }
                     }
                 }
                 
                 setMatchResults(currentResults);
+                setOverlayData({ detections, results: currentResults });
                 setIsScanning(false);
                 setScanComplete(true);
 
@@ -149,8 +260,15 @@ export function FindMatches() {
                         : 'Image Scan: No faces or subjects detected.';
                     fetch('/api/logs', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ activity: activityMsg, type: 'ai-scan', severity: 'info' })
+                        headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
+                        body: JSON.stringify({
+                            activity: activityMsg,
+                            type: 'ai-scan',
+                            severity: 'info',
+                            modelVersion: RECOGNITION_CONFIG.modelVersion,
+                            thresholdPolicy: { accept: RECOGNITION_CONFIG.acceptDistance, review: RECOGNITION_CONFIG.reviewDistance },
+                            reviewRequired: false
+                        })
                     }).catch(e => console.error("Failed to log", e));
                 }
 
@@ -222,11 +340,20 @@ export function FindMatches() {
                         onDrop={handleDrop}
                     >
                         {selectedImage ? (
-                            <div className="preview-container">
-                                <img src={selectedImage} alt="Preview" className="image-preview" />
-                                {!isScanning && (
-                                    <div className="preview-overlay">
-                                        <span>Click to change image</span>
+                                <div className="preview-container">
+                                    <img
+                                        ref={previewImageRef}
+                                        src={selectedImage}
+                                        alt="Preview"
+                                        className="image-preview"
+                                        onLoad={() => {
+                                            if (overlayData) drawOverlay(overlayData.detections, overlayData.results);
+                                        }}
+                                    />
+                                    <canvas ref={overlayCanvasRef} className="match-overlay-canvas" />
+                                    {!isScanning && (
+                                        <div className="preview-overlay">
+                                            <span>Click to change image</span>
                                     </div>
                                 )}
                             </div>
@@ -268,15 +395,15 @@ export function FindMatches() {
                             {matchResults.map((match, i) => (
                                 <div key={i} style={{ 
                                     padding: '15px', 
-                                    background: match.name === 'unknown' ? 'transparent' : 'rgba(240, 168, 50, 0.1)', 
-                                    border: match.name === 'unknown' ? '1px solid var(--border)' : '1px solid var(--accent)',
+                                    background: match.kind === 'known' ? 'rgba(240, 168, 50, 0.1)' : 'transparent', 
+                                    border: match.kind === 'known' ? '1px solid var(--accent)' : '1px solid var(--border)',
                                     borderRadius: '8px',
                                     display: 'flex',
                                     justifyContent: 'space-between',
                                     color: '#fff'
                                 }}>
-                                    <strong>{match.name === 'unknown' ? 'Unknown Subject' : match.name}</strong>
-                                    <span className="mono" style={{ color: match.name === 'unknown' ? 'var(--text-tertiary)' : 'var(--status-amber)' }}>
+                                    <strong>{match.kind === 'unknown' ? 'Unknown Subject' : match.kind === 'review' ? `Review Required: ${match.name}` : match.name}</strong>
+                                    <span className="mono" style={{ color: match.kind === 'known' ? 'var(--status-amber)' : 'var(--text-tertiary)' }}>
                                         {match.conf}% CONFIDENCE
                                     </span>
                                 </div>

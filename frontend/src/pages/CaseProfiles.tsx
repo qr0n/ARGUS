@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, Plus, UploadCloud, Loader2, RefreshCw, MapPin, Calendar, AlertCircle } from 'lucide-react';
 import './CaseProfiles.css';
+import { getArgusAuthHeaders } from '../recognitionConfig';
 
 const SERVER = ''; // Using Vite proxy to avoid strict SSL issues
 
@@ -85,7 +86,7 @@ export function CaseProfiles() {
       const fd = new FormData();
       fd.append('subject', subjectName.trim());
       fd.append('photo', photoFile, photoFile.name);
-      const res = await fetch(`${SERVER}/dataset/upload`, { method: 'POST', body: fd });
+      const res = await fetch(`${SERVER}/dataset/upload`, { method: 'POST', headers: { ...getArgusAuthHeaders() }, body: fd });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Upload failed');
       
@@ -93,7 +94,7 @@ export function CaseProfiles() {
       try {
           await fetch('/api/logs', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
               body: JSON.stringify({ activity: `Added ${subjectName.trim()} to Case Profiles dataset.`, type: 'upload', severity: 'info' })
           });
       } catch (err) { console.error("Failed to log activity", err); }
@@ -113,14 +114,14 @@ export function CaseProfiles() {
   const handleDelete = async (filename: string) => {
     if (!confirm(`Remove "${toDisplayName(filename)}" from the dataset?`)) return;
     try {
-      await fetch(`${SERVER}/dataset/${filename}`, { method: 'DELETE' });
+      await fetch(`${SERVER}/dataset/${filename}`, { method: 'DELETE', headers: { ...getArgusAuthHeaders() } });
       setProfiles(prev => prev.filter(p => p.filename !== filename));
       
       // Activity Log 
       try {
           await fetch('/api/logs', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
               body: JSON.stringify({ activity: `Removed ${toDisplayName(filename)} from Case Profiles dataset.`, type: 'delete', severity: 'warning' })
           });
       } catch (err) { console.error("Failed to log activity", err); }

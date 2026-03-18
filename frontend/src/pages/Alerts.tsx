@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import './Alerts.css';
 import { Check, X, Loader2 } from 'lucide-react';
+import { getArgusAuthHeaders } from '../recognitionConfig';
 
 interface LogEntry {
     id?: string;
@@ -45,7 +46,7 @@ export function Alerts() {
         try {
             await fetch(`/api/logs/${id}/status`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
                 body: JSON.stringify({ status: newStatus })
             });
             fetchAlerts(); // refresh

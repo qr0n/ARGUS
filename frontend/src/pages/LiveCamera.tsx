@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Camera, RefreshCw, Plus, Minus } from 'lucide-react';
 import './LiveCamera.css';
+import { RECOGNITION_CONFIG, clampConfidence, getArgusAuthHeaders, isUsableDetection } from '../recognitionConfig';
 
 declare global {
   interface Window { faceapi: any; }
@@ -59,7 +60,8 @@ function PhoneFeed({ slot, isLive, faceMatcherRef, alertCooldownRef, onMatchesCh
         }
 
         const isHttps = window.location.protocol === 'https:';
-        const wsUrl   = `${isHttps ? 'wss:' : 'ws:'}//${window.location.host}${wsPath}`;
+        const wsToken = localStorage.getItem('argusAuthToken') || '';
+        const wsUrl   = `${isHttps ? 'wss:' : 'ws:'}//${window.location.host}${wsPath}${wsToken ? `?token=${encodeURIComponent(wsToken)}` : ''}`;
         let reconnectDelay = 1500;
         let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
         let isMounted = true;
@@ -199,12 +201,13 @@ function PhoneFeed({ slot, isLive, faceMatcherRef, alertCooldownRef, onMatchesCh
 
                     const active: MatchResult[] = [];
                     detections.forEach((det: any) => {
+                        if (!isUsableDetection(det)) return;
                         let color = '#555963', label = 'UNKNOWN';
                         if (faceMatcherRef.current) {
                             const best = faceMatcherRef.current.findBestMatch(det.descriptor);
-                            if (best.label !== 'unknown') {
+                            if (best.label !== 'unknown' && best.distance <= RECOGNITION_CONFIG.acceptDistance) {
                                 color = '#f0a832';
-                                const conf = Math.min(100, Math.max(0, Math.round((1 - best.distance) * 100)));
+                                const conf = clampConfidence(best.distance);
                                 label = `${best.label} — ${conf}%`;
                                 active.push({ name: best.label, conf });
 
@@ -215,14 +218,24 @@ function PhoneFeed({ slot, isLive, faceMatcherRef, alertCooldownRef, onMatchesCh
                                     alertCooldownRef.current.set(key, alertNow);
                                     fetch('/api/logs', {
                                         method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
+                                        headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
                                         body: JSON.stringify({
                                             activity: `${cameraLabel} — Match Detected: ${best.label} (${conf}%)`,
                                             type: 'face-match',
-                                            severity: 'high'
+                                            severity: 'high',
+                                            modelVersion: RECOGNITION_CONFIG.modelVersion,
+                                            thresholdPolicy: { accept: RECOGNITION_CONFIG.acceptDistance, review: RECOGNITION_CONFIG.reviewDistance },
+                                            matchedLabel: best.label,
+                                            matchDistance: best.distance,
+                                            matchConfidence: conf,
+                                            reviewRequired: false
                                         })
                                     }).catch(console.error);
                                 }
+                            } else if (best.label !== 'unknown') {
+                                const conf = clampConfidence(best.distance);
+                                label = `REVIEW — ${best.label} (${conf}%)`;
+                                active.push({ name: `REVIEW: ${best.label}`, conf });
                             }
                         }
                         const rb = det.detection.box;
@@ -358,7 +371,9 @@ export function LiveCamera() {
                 const labeled = Object.keys(grouped).map(
                     label => new faceapi.LabeledFaceDescriptors(label, grouped[label])
                 );
-                if (labeled.length > 0 && isMounted) faceMatcherRef.current = new faceapi.FaceMatcher(labeled, 0.48);
+                if (labeled.length > 0 && isMounted) {
+                    faceMatcherRef.current = new faceapi.FaceMatcher(labeled, RECOGNITION_CONFIG.reviewDistance);
+                }
                 if (isMounted) { setModelsLoaded(true); setLoadStatus('READY'); }
             } catch (e) {
                 console.error('AI Loading Error:', e);
@@ -436,12 +451,13 @@ export function LiveCamera() {
                     else         { sX = dW / iW; sY = sX; oX = 0; oY = (dH - iH * sY) / 2; }
                     const active: MatchResult[] = [];
                     detections.forEach((det: any) => {
+                        if (!isUsableDetection(det)) return;
                         let color = '#555963', label = 'UNKNOWN';
                         if (faceMatcherRef.current) {
                             const best = faceMatcherRef.current.findBestMatch(det.descriptor);
-                            if (best.label !== 'unknown') {
+                            if (best.label !== 'unknown' && best.distance <= RECOGNITION_CONFIG.acceptDistance) {
                                 color = '#f0a832';
-                                const conf = Math.min(100, Math.max(0, Math.round((1 - best.distance) * 100)));
+                                const conf = clampConfidence(best.distance);
                                 label = `${best.label} — ${conf}%`;
                                 active.push({ name: best.label, conf });
                                 const key = `${cameraLabel}:${best.label.toLowerCase()}`;
@@ -450,13 +466,24 @@ export function LiveCamera() {
                                     alertCooldownRef.current.set(key, alertNow);
                                     fetch('/api/logs', {
                                         method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
+                                        headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
                                         body: JSON.stringify({
                                             activity: `${cameraLabel} — Match Detected: ${best.label} (${conf}%)`,
-                                            type: 'face-match', severity: 'high'
+                                            type: 'face-match',
+                                            severity: 'high',
+                                            modelVersion: RECOGNITION_CONFIG.modelVersion,
+                                            thresholdPolicy: { accept: RECOGNITION_CONFIG.acceptDistance, review: RECOGNITION_CONFIG.reviewDistance },
+                                            matchedLabel: best.label,
+                                            matchDistance: best.distance,
+                                            matchConfidence: conf,
+                                            reviewRequired: false
                                         })
                                     }).catch(console.error);
                                 }
+                            } else if (best.label !== 'unknown') {
+                                const conf = clampConfidence(best.distance);
+                                label = `REVIEW — ${best.label} (${conf}%)`;
+                                active.push({ name: `REVIEW: ${best.label}`, conf });
                             }
                         }
                         const rb = det.detection.box;

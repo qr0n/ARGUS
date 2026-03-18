@@ -102,11 +102,66 @@
     background: rgba(0, 0, 0, 0.1);
     cursor: pointer;
     transition: all 0.2s ease;
+    overflow: hidden;
+    position: relative;
 }
 
-.dropzone:hover {
+.dropzone:hover:not(.disabled) {
     border-color: var(--accent);
     background: rgba(59, 180, 242, 0.05);
+}
+
+.dropzone.has-image {
+    border-style: solid;
+    border-color: rgba(255,255,255,0.1);
+    padding: 0;
+}
+
+.dropzone.disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.preview-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+.image-preview {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.match-overlay-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.preview-overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+    color: #fff;
+    font-weight: 600;
+    pointer-events: none;
+    z-index: 3;
+}
+
+.dropzone:hover .preview-overlay {
+    opacity: 1;
 }
 
 .dropzone-content {

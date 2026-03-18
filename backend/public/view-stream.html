@@ -216,7 +216,9 @@
         let isDetecting = false;
 
         // ----------- 1. WebRTC SIGNALING -----------
-        const wsUrl = `wss://${window.location.host}/ws-view`;
+        const qs = new URLSearchParams(window.location.search);
+        const authToken = qs.get('token') || localStorage.getItem('argusAuthToken') || '';
+        const wsUrl = `wss://${window.location.host}/ws-view${authToken ? `?token=${encodeURIComponent(authToken)}` : ''}`;
         const ws = new WebSocket(wsUrl);
         let pc = null;
 

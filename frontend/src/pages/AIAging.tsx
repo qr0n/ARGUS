@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { UploadCloud, FileSearch, Activity, CheckCircle2, ChevronRight, UserCircle, Loader2 } from 'lucide-react';
 import './AIAging.css';
+import { RECOGNITION_CONFIG, clampConfidence, getArgusAuthHeaders, isUsableDetection } from '../recognitionConfig';
 
 declare global {
   interface Window {
@@ -66,7 +67,7 @@ export function AIAging() {
         );
         
         if (labeledDescriptors.length > 0 && isMounted) {
-          setFaceMatcher(new faceapi.FaceMatcher(labeledDescriptors, 0.5));
+          setFaceMatcher(new faceapi.FaceMatcher(labeledDescriptors, RECOGNITION_CONFIG.reviewDistance));
           setLabelToImageMap(mapping);
         }
         if (isMounted) setMatcherReady(true);
@@ -134,8 +135,21 @@ export function AIAging() {
       setTimeout(() => {
         if (detection && faceMatcher) {
           const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
-          if (bestMatch.label !== 'unknown') {
-            const conf = Math.round((1 - bestMatch.distance) * 100);
+          if (detection && !isUsableDetection(detection)) {
+            fetch('/api/logs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
+                body: JSON.stringify({
+                  activity: `AI Aging: Face quality too low for reliable matching.`,
+                  type: 'ai-scan',
+                  severity: 'info',
+                  modelVersion: RECOGNITION_CONFIG.modelVersion,
+                  thresholdPolicy: { accept: RECOGNITION_CONFIG.acceptDistance, review: RECOGNITION_CONFIG.reviewDistance },
+                  reviewRequired: true
+                })
+            }).catch(e => console.error("Failed to log", e));
+          } else if (bestMatch.label !== 'unknown' && bestMatch.distance <= RECOGNITION_CONFIG.acceptDistance) {
+            const conf = clampConfidence(bestMatch.distance);
             
             // Check the mapping first, otherwise fallback to guessing the generic .jpg
             const targetFilename = labelToImageMap[bestMatch.label.toLowerCase()] 
@@ -150,16 +164,50 @@ export function AIAging() {
             // Log Match
             fetch('/api/logs', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ activity: `AI Aging: Match Detected — ${bestMatch.label} (${Math.min(100, Math.max(0, conf))}%)`, type: 'ai-scan', severity: 'warning' })
+                headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
+                body: JSON.stringify({
+                  activity: `AI Aging: Match Detected — ${bestMatch.label} (${Math.min(100, Math.max(0, conf))}%)`,
+                  type: 'ai-scan',
+                  severity: 'warning',
+                  modelVersion: RECOGNITION_CONFIG.modelVersion,
+                  thresholdPolicy: { accept: RECOGNITION_CONFIG.acceptDistance, review: RECOGNITION_CONFIG.reviewDistance },
+                  matchedLabel: bestMatch.label,
+                  matchDistance: bestMatch.distance,
+                  matchConfidence: Math.min(100, Math.max(0, conf)),
+                  reviewRequired: false
+                })
             }).catch(e => console.error("Failed to log", e));
 
+          } else if (bestMatch.label !== 'unknown') {
+            const conf = clampConfidence(bestMatch.distance);
+            fetch('/api/logs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
+                body: JSON.stringify({
+                  activity: `AI Aging: Review Required — ${bestMatch.label} (${conf}%)`,
+                  type: 'ai-scan',
+                  severity: 'info',
+                  modelVersion: RECOGNITION_CONFIG.modelVersion,
+                  thresholdPolicy: { accept: RECOGNITION_CONFIG.acceptDistance, review: RECOGNITION_CONFIG.reviewDistance },
+                  matchedLabel: bestMatch.label,
+                  matchDistance: bestMatch.distance,
+                  matchConfidence: conf,
+                  reviewRequired: true
+                })
+            }).catch(e => console.error("Failed to log", e));
           } else {
             // Log No Match
             fetch('/api/logs', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ activity: `AI Aging: No database match found.`, type: 'ai-scan', severity: 'info' })
+                headers: { 'Content-Type': 'application/json', ...getArgusAuthHeaders() },
+                body: JSON.stringify({
+                  activity: `AI Aging: No database match found.`,
+                  type: 'ai-scan',
+                  severity: 'info',
+                  modelVersion: RECOGNITION_CONFIG.modelVersion,
+                  thresholdPolicy: { accept: RECOGNITION_CONFIG.acceptDistance, review: RECOGNITION_CONFIG.reviewDistance },
+                  reviewRequired: false
+                })
             }).catch(e => console.error("Failed to log", e));
           }
         }

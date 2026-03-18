@@ -21,14 +21,151 @@ function getLocalIp() {
 
 const PORT = 3000;
 const IP = getLocalIp();
+const LOGS_LIMIT = 100;
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const ALLOWED_IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+
+const KNOWN_TOKENS = {
+    admin: process.env.ARGUS_ADMIN_TOKEN || '',
+    operator: process.env.ARGUS_OPERATOR_TOKEN || '',
+    viewer: process.env.ARGUS_VIEWER_TOKEN || '',
+};
+const AUTH_ENABLED = Object.values(KNOWN_TOKENS).some(Boolean);
+
+function getClientIp(req) {
+    const xff = req.headers['x-forwarded-for'];
+    if (typeof xff === 'string' && xff) return xff.split(',')[0].trim();
+    return req.socket.remoteAddress || 'unknown';
+}
+
+function normalizeOrigin(origin = '') {
+    try {
+        const u = new URL(origin);
+        return `${u.protocol}//${u.host}`;
+    } catch {
+        return '';
+    }
+}
+
+const DEFAULT_ALLOWED_ORIGINS = [
+    `https://localhost:${PORT}`,
+    `https://127.0.0.1:${PORT}`,
+    'https://localhost:5173',
+    'https://127.0.0.1:5173',
+    `http://localhost:${PORT}`,
+    `http://127.0.0.1:${PORT}`,
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+];
+const allowedOriginSet = new Set(
+    (process.env.ARGUS_ALLOWED_ORIGINS || DEFAULT_ALLOWED_ORIGINS.join(','))
+        .split(',')
+        .map(s => normalizeOrigin(s.trim()))
+        .filter(Boolean)
+);
+
+function getRoleFromRequest(req) {
+    if (!AUTH_ENABLED) return 'admin';
+    const auth = req.headers.authorization || '';
+    if (!auth.startsWith('Bearer ')) return null;
+    const token = auth.slice(7).trim();
+    if (!token) return null;
+    if (token === KNOWN_TOKENS.admin) return 'admin';
+    if (token === KNOWN_TOKENS.operator) return 'operator';
+    if (token === KNOWN_TOKENS.viewer) return 'viewer';
+    return null;
+}
+
+function requireRole(...allowedRoles) {
+    return (req, res, next) => {
+        const role = getRoleFromRequest(req);
+        if (!role || !allowedRoles.includes(role)) {
+            return res.status(401).json({ success: false, error: 'Unauthorized' });
+        }
+        req.argusRole = role;
+        next();
+    };
+}
+
+const rateState = new Map();
+function createRateLimiter({ windowMs, maxRequests }) {
+    return (req, res, next) => {
+        const now = Date.now();
+        const key = `${getClientIp(req)}:${req.path}`;
+        const current = rateState.get(key);
+        if (!current || now >= current.resetAt) {
+            rateState.set(key, { count: 1, resetAt: now + windowMs });
+            return next();
+        }
+        if (current.count >= maxRequests) {
+            const retryAfter = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
+            res.setHeader('Retry-After', retryAfter.toString());
+            return res.status(429).json({ success: false, error: 'Rate limit exceeded' });
+        }
+        current.count += 1;
+        next();
+    };
+}
+
+const mutationRateLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 120 });
+
+function sanitizeSubject(subject) {
+    const text = String(subject || 'Unknown').trim();
+    const cleaned = text.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_').slice(0, 64);
+    return cleaned || 'Unknown';
+}
+
+function isAllowedImageFile(file) {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    return ALLOWED_IMAGE_EXT.has(ext);
+}
+
+function isValidLogStatus(status) {
+    return ['unreviewed', 'reviewing', 'reviewed', 'verified', 'dismissed'].includes(status);
+}
+
+function validateLogPayload(payload) {
+    if (!payload || typeof payload !== 'object') return { ok: false, error: 'Invalid body' };
+    if (!payload.activity || typeof payload.activity !== 'string' || !payload.activity.trim()) {
+        return { ok: false, error: 'Activity is required' };
+    }
+    if (payload.type && typeof payload.type !== 'string') return { ok: false, error: 'Invalid type' };
+    if (payload.severity && !['info', 'warning', 'high'].includes(payload.severity)) {
+        return { ok: false, error: 'Invalid severity' };
+    }
+    if (payload.status && !isValidLogStatus(payload.status)) {
+        return { ok: false, error: 'Invalid status' };
+    }
+    return { ok: true };
+}
+
+function readJsonFile(filepath, fallback) {
+    try {
+        return JSON.parse(fs.readFileSync(filepath, 'utf-8'));
+    } catch {
+        return fallback;
+    }
+}
+
+function writeJsonFileAtomic(filepath, payload) {
+    const tmp = `${filepath}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(payload, null, 2));
+    fs.renameSync(tmp, filepath);
+}
 
 const app = express();
+app.disable('x-powered-by');
+app.use(express.json({ limit: '256kb' }));
 
-// Explicit CORS Bypass for Vite Localhost
+// CORS allowlist (configurable via ARGUS_ALLOWED_ORIGINS)
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    const reqOrigin = normalizeOrigin(req.headers.origin || '');
+    if (!reqOrigin || allowedOriginSet.has(reqOrigin)) {
+        res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    }
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Vary', 'Origin');
     if (req.method === 'OPTIONS') {
         return res.sendStatus(200);
     }
@@ -62,9 +199,15 @@ function getViewers(ch) {
 }
 
 wss.on('connection', (ws, req) => {
-    const url = req.url;
-    const streamerM = url.match(/^\/ws-stream(-(\d+))?$/);
-    const viewerM   = url.match(/^\/ws-view(-(\d+))?$/);
+    const parsed = new URL(req.url || '/', 'https://localhost');
+    const pathname = parsed.pathname || '';
+    if (AUTH_ENABLED) {
+        const wsToken = parsed.searchParams.get('token') || '';
+        const valid = wsToken && Object.values(KNOWN_TOKENS).includes(wsToken);
+        if (!valid) { ws.close(1008, 'Unauthorized'); return; }
+    }
+    const streamerM = pathname.match(/^\/ws-stream(-(\d+))?$/);
+    const viewerM   = pathname.match(/^\/ws-view(-(\d+))?$/);
 
     if (!streamerM && !viewerM) { ws.close(); return; } // unknown path
 
@@ -140,22 +283,28 @@ const storage = multer.diskStorage({
         cb(null, path.join(process.cwd(), 'dataset'));
     },
     filename: (req, file, cb) => {
-        const subject = req.body.subject || 'Unknown';
-        const safeSubject = subject.replace(/[^a-zA-Z0-9]/g, '_');
-        const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-        cb(null, safeSubject + ext);
+        const safeSubject = sanitizeSubject(req.body.subject);
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, `${safeSubject}${ALLOWED_IMAGE_EXT.has(ext) ? ext : '.jpg'}`);
     }
 });
-const upload = multer({ storage });
+const upload = multer({
+    storage,
+    limits: { fileSize: MAX_UPLOAD_BYTES },
+    fileFilter: (_req, file, cb) => {
+        if (!isAllowedImageFile(file)) return cb(new Error('Invalid file type'));
+        cb(null, true);
+    }
+});
 
-app.post('/dataset/upload', upload.single('photo'), (req, res) => {
+app.post('/dataset/upload', mutationRateLimiter, requireRole('admin', 'operator'), upload.single('photo'), (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
     res.json({ success: true, file: req.file.filename });
 });
 
-app.delete('/dataset/:filename', (req, res) => {
+app.delete('/dataset/:filename', mutationRateLimiter, requireRole('admin'), (req, res) => {
     const filename = req.params.filename;
-    if (filename.includes('..') || filename.includes('/')) {
+    if (!/^[a-zA-Z0-9._-]+$/.test(filename) || filename.includes('..') || filename.includes('/')) {
         return res.status(403).json({ success: false, error: 'Invalid config' });
     }
     const filepath = path.join(process.cwd(), 'dataset', filename);
@@ -176,56 +325,68 @@ app.get('/dataset', (req, res) => {
     }
 });
 
-// Activity Logs API
-app.use(express.json());
-
 const LOGS_FILE = path.join(process.cwd(), 'dataset', 'logs.json');
 if (!fs.existsSync(LOGS_FILE)) {
-    fs.writeFileSync(LOGS_FILE, JSON.stringify([]));
+    writeJsonFileAtomic(LOGS_FILE, []);
 }
 
 app.get('/api/logs', (req, res) => {
     try {
-        const logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
+        const logs = readJsonFile(LOGS_FILE, []);
         res.json(logs);
     } catch (e) {
         res.status(500).json({ error: 'Failed to read logs' });
     }
 });
 
-app.post('/api/logs', (req, res) => {
+app.post('/api/logs', mutationRateLimiter, requireRole('admin', 'operator'), (req, res) => {
     try {
-        const newLog = req.body;
-        // { time, activity, type, severity, status, id }
-        newLog.id = Date.now().toString() + Math.floor(Math.random() * 10000).toString();
-        newLog.status = newLog.status || 'unreviewed';
-        if (!newLog.time) {
-            newLog.time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const validity = validateLogPayload(req.body);
+        if (!validity.ok) {
+            return res.status(400).json({ success: false, error: validity.error });
         }
-        
-        const logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
+        const newLog = {
+            activity: String(req.body.activity).trim(),
+            type: req.body.type || 'system',
+            severity: req.body.severity || 'info',
+            source: req.body.source || 'argus',
+            modelVersion: req.body.modelVersion || process.env.ARGUS_MODEL_VERSION || 'face-api/ssdMobilenetv1+faceRecognitionNet@1',
+            thresholdPolicy: req.body.thresholdPolicy || null,
+            matchedLabel: req.body.matchedLabel || null,
+            matchDistance: typeof req.body.matchDistance === 'number' ? req.body.matchDistance : null,
+            matchConfidence: typeof req.body.matchConfidence === 'number' ? req.body.matchConfidence : null,
+            reviewRequired: !!req.body.reviewRequired,
+            id: Date.now().toString() + Math.floor(Math.random() * 10000).toString(),
+            status: req.body.status || 'unreviewed',
+            time: req.body.time || new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        };
+        // { time, activity, type, severity, status, id }
+        const logs = readJsonFile(LOGS_FILE, []);
         logs.unshift(newLog); // Add to beginning
-        
+
         // Keep only the latest 100 logs
-        if (logs.length > 100) logs.pop();
-        
-        fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 2));
+        while (logs.length > LOGS_LIMIT) logs.pop();
+
+        writeJsonFileAtomic(LOGS_FILE, logs);
         res.json({ success: true, log: newLog });
     } catch (e) {
         res.status(500).json({ error: 'Failed to write log' });
     }
 });
 
-app.patch('/api/logs/:id/status', (req, res) => {
+app.patch('/api/logs/:id/status', mutationRateLimiter, requireRole('admin', 'operator'), (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
-        const logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
-        
+        if (!isValidLogStatus(status)) {
+            return res.status(400).json({ error: 'Invalid status' });
+        }
+        const logs = readJsonFile(LOGS_FILE, []);
+
         const log = logs.find(l => l.id === id);
         if (log) {
             log.status = status;
-            fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 2));
+            writeJsonFileAtomic(LOGS_FILE, logs);
             res.json({ success: true, log });
         } else {
             res.status(404).json({ error: 'Log not found' });
@@ -233,6 +394,17 @@ app.patch('/api/logs/:id/status', (req, res) => {
     } catch (e) {
         res.status(500).json({ error: 'Failed to update log' });
     }
+});
+
+app.use((err, _req, res, _next) => {
+    if (err && err.message === 'Invalid file type') {
+        return res.status(400).json({ success: false, error: 'Only JPG, JPEG, PNG, WEBP allowed' });
+    }
+    if (err && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ success: false, error: 'File too large (max 10MB)' });
+    }
+    console.error('Unhandled server error:', err);
+    res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
 server.listen(PORT, '0.0.0.0', () => {
