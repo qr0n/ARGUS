@@ -81,6 +81,18 @@ watch. Remove a phone from the same panel to disconnect it immediately and revok
 
 ---
 
+## ⚠️ Security notice: face photos removed from git history (2026-11-21)
+
+The history was rewritten again to remove every committed face photo, `logs.json` (names of
+people matched) and `.env` file, from all commits on all branches. **All branches were
+force-pushed and every commit ID changed.** Content is otherwise identical.
+
+- **Re-clone** (recommended) or follow [Resyncing your local clone](#resyncing-your-local-clone).
+  Do not push, merge or rebase anything built on the old history: that would put the photos back.
+- The repository is public, so these files must be treated as already exposed. GitHub may still
+  serve old commits by ID until GitHub Support purges them.
+- Face photos now live only in `backend/data/` on each machine (git-ignored).
+
 ## ⚠️ Security notice: SSL private keys removed from git history (2026-09-04)
 
 The git history of this repository was rewritten to permanently remove committed SSL private
@@ -161,14 +173,15 @@ application through a mounted secret or environment-specific path — never thro
 
 ## Resyncing your local clone
 
-History was rewritten, so an existing clone has diverged and will conflict on the next push.
-The simplest fix is a fresh clone. To keep your existing working directory instead, back up any
-uncommitted work first, then:
+History was rewritten (most recently on 2026-11-21), so an existing clone has diverged and will
+conflict on the next push. The simplest fix is a fresh clone. To keep your existing working
+directory instead, back up any uncommitted work and any local face photos first, then:
 
 ```bash
-git fetch origin
+git fetch origin --prune
 git reset --hard origin/main   # repeat per branch you track
+git reflog expire --expire=now --all && git gc --prune=now   # drop the old history locally
 ```
 
-Any local branch still built on the old history must be rebased onto the rewritten history, or
-recreated from it.
+Any local branch still built on the old history must be recreated from the rewritten history
+(cherry-pick your own commits onto it), never merged.
