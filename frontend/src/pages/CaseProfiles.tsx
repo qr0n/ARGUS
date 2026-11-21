@@ -190,7 +190,7 @@ export function CaseProfiles() {
       {!loading && serverError && (
         <div className="cp-state-msg error">
           <p>⚠️ Cannot reach the AI server at <code>{SERVER}</code>.</p>
-          <span>Make sure the live-camera-server is running, then open that URL and accept the certificate warning.</span>
+          <span>Make sure the ARGUS backend is running, then open that URL and accept the certificate warning.</span>
           <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={fetchProfiles}>Retry</button>
         </div>
       )}

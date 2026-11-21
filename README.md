@@ -37,15 +37,17 @@ required for any new deployment anyway.
 
 ### Current state
 
-The matching **`cert.pem` files are still tracked** and are now orphaned — a certificate without
-its private key cannot serve TLS:
+The matching `cert.pem` files (orphaned without their keys) are no longer tracked, and the root
+`.gitignore` now excludes `*.pem`, `*.key`, `*.crt`, `.env*` and `**/dataset/*`.
 
-- `argus-integrated-build/backend/cert.pem`
-- `kye/cert.pem`
-- `live-camera-server/cert.pem`
+The duplicate server copies (`kye/`, `live-camera-server/`, `vedang/`) have been removed. The
+repository now has a single backend and frontend:
 
-They are harmless (a certificate is public by design) but non-functional. Replace them together
-with the new keys.
+| Path | Contents |
+| --- | --- |
+| `backend/` | Express HTTPS + WebSocket relay server (formerly `argus-integrated-build/backend/`) |
+| `frontend/` | React dashboard (formerly `argus-integrated-build/frontend/`) |
+| `scripts/` | Legacy EC2 deploy scripts — run from the repository root |
 
 ---
 
@@ -53,8 +55,7 @@ with the new keys.
 
 ### 1. Generate a fresh certificate pair
 
-Run this once per backend directory that serves HTTPS (`backend/`, `live-camera-server/`, and
-`argus-integrated-build/backend/`):
+Run this once in `backend/` on each machine that runs the server:
 
 ```bash
 openssl req -x509 -newkey rsa:4096 -sha256 -days 365 \
@@ -72,24 +73,8 @@ device — or install the certificate as trusted on the phone to avoid repeated 
 
 ### 2. Keep keys out of git
 
-The root `.gitignore` currently lists only `node_modules`, so a regenerated `key.pem` would be
-committed again. Add:
-
-```gitignore
-*.pem
-```
-
-If you want to keep certificates tracked while excluding only the secret half, use this instead:
-
-```gitignore
-*key.pem
-```
-
-Then untrack the orphaned certificates:
-
-```bash
-git rm --cached argus-integrated-build/backend/cert.pem kye/cert.pem live-camera-server/cert.pem
-```
+The root `.gitignore` excludes `*.pem`, so a regenerated pair will not be committed. Do not
+remove that rule or force-add certificate files.
 
 ### 3. For a real deployment
 

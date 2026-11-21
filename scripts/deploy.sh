@@ -3,7 +3,7 @@
 # ==========================================
 # ARGUS Deployment Script
 # ==========================================
-# Make sure to run this script from the argus-integrated-build directory
+# Make sure to run this script from the repository root
 
 # Configuration
 PEM_KEY="~/.ssh/login-test.pem"
