@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ARGUS - Camera Streamer</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #1a1b1e;
+      color: #e4e5e8;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    header {
+      padding: 16px;
+      background: #272930;
+      text-align: center;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    h1 {
+      margin: 0;
+      font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 20px;
+      letter-spacing: 2px;
+    }
+    .status {
+      font-size: 12px;
+      font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      color: #fbbf24;
+      margin-top: 4px;
+    }
+    .video-container {
+      flex: 1;
+      position: relative;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .controls {
+      padding: 24px;
+      background: #272930;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding-bottom: env(safe-area-inset-bottom, 24px);
+    }
+    .btn {
+      background: #3bb4f2;
+      color: #000;
+      border: none;
+      padding: 16px;
+      border-radius: 8px;
+      font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-secondary {
+      background: transparent;
+      color: #3bb4f2;
+      border: 1px solid #3bb4f2;
+    }
+    .mode-label {
+      text-align: center;
+      font-size: 12px;
+      color: #909296;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>ARGUS UPLINK</h1>
+    <div class="status" id="wsStatus">CONNECTING...</div>
+  </header>
+
+  <div class="controls" id="pairPanel" style="display:none;">
+    <div class="mode-label" id="pairMessage">This phone is not paired with ARGUS yet.</div>
+    <p style="color:#909296;font-size:13px;text-align:center;margin:0 0 8px;">
+      On the dashboard, open Live Camera → "Pair a phone", then open the link it shows on this phone
+      or type the code below.
+    </p>
+    <input id="pairCode" inputmode="text" autocomplete="one-time-code" maxlength="9" placeholder="PAIRING CODE"
+      style="font-size:20px;letter-spacing:4px;text-align:center;padding:12px;border-radius:8px;border:1px solid #444;background:#111;color:#fff;text-transform:uppercase;">
+    <button class="btn" id="pairBtn">Pair this phone</button>
+  </div>
+
+  <div class="video-container" id="videoContainer" style="display:none;">
+    <video id="video" autoplay playsinline muted></video>
+  </div>
+
+  <div class="controls" id="cameraControls" style="display:none;">
+    <div class="mode-label" id="modeLabel">Awaiting Camera Start</div>
+    <button class="btn" id="startBtn">Start Camera</button>
+    <button class="btn btn-secondary" id="switchBtn" style="display:none;">Switch Camera</button>
+  </div>
+
+  <script>
+    const wsUrl = `wss://${window.location.host}/ws-stream`;
+
+    let ws = null;
+    let reconnectDelay = 1500;
+    let reconnectTimer = null;
+    let pc = null;
+    let localStream = null;
+    let currentFacingMode = 'environment';
+    let viewerWaiting = false;
+
+    const video = document.getElementById('video');
+    const startBtn = document.getElementById('startBtn');
+    const switchBtn = document.getElementById('switchBtn');
+    const wsStatus = document.getElementById('wsStatus');
+    const modeLabel = document.getElementById('modeLabel');
+
+    function connect() {
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        reconnectDelay = 1500; // reset backoff on successful connect
+        wsStatus.textContent = 'CONNECTED';
+        wsStatus.style.color = '#38d399';
+      };
+
+      ws.onclose = async (event) => {
+        // Close any hanging PC
+        if (pc) { pc.onicecandidate = null; pc.close(); pc = null; }
+        if (event.code === 4000) {
+          // This device connected again elsewhere (e.g. another tab); don't fight over the room.
+          wsStatus.textContent = 'OPENED ON ANOTHER TAB OR DEVICE SESSION';
+          wsStatus.style.color = '#fbbf24';
+          return;
+        }
+        // Stop retrying if this phone has been removed/revoked.
+        if (!(await isPaired())) {
+          showPairing('This phone was removed from ARGUS. Pair it again to continue streaming.');
+          return;
+        }
+        wsStatus.textContent = `DISCONNECTED — retrying in ${Math.round(reconnectDelay / 1000)}s...`;
+        wsStatus.style.color = '#ef4444';
+        reconnectTimer = setTimeout(() => {
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+          connect();
+        }, reconnectDelay);
+      };
+
+      ws.onerror = () => {
+        wsStatus.textContent = 'CONNECTION ERROR';
+        wsStatus.style.color = '#ef4444';
+        // onclose fires after onerror — reconnect handled there
+      };
+
+      ws.onmessage = async (event) => {
+      const msg = JSON.parse(event.data);
+      console.log('WS msg:', msg);
+      
+      if (msg.type === 'viewer-ready') {
+        viewerWaiting = true;
+        wsStatus.textContent = 'VIEWER READY';
+        // If we already have a stream, immediately trigger SDP handshake
+        if (localStream && !pc) {
+          createPeerConnection();
+        }
+      } else if (msg.type === 'answer' && pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+      } else if (msg.type === 'ice' && pc) {
+        if (msg.candidate) {
+          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+        }
+      } else if (msg.type === 'viewer-gone') {
+        viewerWaiting = false;
+        wsStatus.textContent = 'VIEWER DISCONNECTED';
+        if (pc) {
+          pc.onicecandidate = null;
+          pc.close();
+          pc = null;
+        }
+      } else if (msg.type === 'request-restart') {
+        console.log('[ARGUS] Restart requested by viewer, re-negotiating...');
+        wsStatus.textContent = 'RE-NEGOTIATING...';
+        wsStatus.style.color = '#fbbf24';
+        if (localStream) {
+          await createPeerConnection();
+        }
+      }
+    }; // end ws.onmessage
+    } // end connect()
+
+    // --- Pairing -----------------------------------------------------------
+    const pairPanel = document.getElementById('pairPanel');
+    const pairMessage = document.getElementById('pairMessage');
+    const pairCode = document.getElementById('pairCode');
+    const pairBtn = document.getElementById('pairBtn');
+
+    async function isPaired() {
+      try {
+        const res = await fetch('/api/devices/self', { cache: 'no-store' });
+        return res.ok;
+      } catch {
+        return true; // network blip: assume still paired and keep retrying
+      }
+    }
+
+    function showPairing(message) {
+      if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+      document.getElementById('videoContainer').style.display = 'none';
+      document.getElementById('cameraControls').style.display = 'none';
+      pairPanel.style.display = '';
+      pairMessage.textContent = message;
+      wsStatus.textContent = 'NOT PAIRED';
+      wsStatus.style.color = '#fbbf24';
+    }
+
+    function showCamera(device) {
+      pairPanel.style.display = 'none';
+      document.getElementById('videoContainer').style.display = '';
+      document.getElementById('cameraControls').style.display = '';
+      document.querySelector('header h1').textContent = `ARGUS UPLINK — ${device.name}`;
+      connect();
+    }
+
+    async function pair(code) {
+      pairBtn.disabled = true;
+      pairMessage.textContent = 'Pairing…';
+      try {
+        const res = await fetch('/api/devices/pair', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Pairing failed');
+        showCamera(data.device);
+      } catch (e) {
+        showPairing(e.message);
+      } finally {
+        pairBtn.disabled = false;
+      }
+    }
+
+    pairBtn.addEventListener('click', () => pair(pairCode.value));
+
+    (async function init() {
+      // A pairing link carries the code in the URL fragment (never sent to the server in requests).
+      const fromLink = new URLSearchParams(window.location.hash.slice(1)).get('code');
+      if (fromLink) {
+        history.replaceState(null, '', window.location.pathname);
+        return pair(fromLink);
+      }
+      const res = await fetch('/api/devices/self', { cache: 'no-store' }).catch(() => null);
+      if (res && res.ok) return showCamera(await res.json());
+      showPairing('This phone is not paired with ARGUS yet.');
+    })();
+
+    async function startCamera(facingMode) {
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+      }
+      
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+           throw new Error("Local Media API missing. Are you using HTTPS/Self-Signed correctly?");
+        }
+        
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: facingMode } },
+            audio: false
+          });
+        } catch (e) {
+          console.warn("Fallback to generic camera:", e);
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        }
+        
+        video.srcObject = localStream;
+        await video.play().catch(e => console.error("Play error:", e));
+        modeLabel.textContent = facingMode === 'environment' ? 'Rear Camera Active' : 'Front Camera Active';
+        
+        startBtn.style.display = 'none';
+        switchBtn.style.display = 'block';
+
+        if (pc) {
+          // Replace track without renegotiating if possible
+          const videoTrack = localStream.getVideoTracks()[0];
+          const sender = pc.getSenders().find(s => s.track && s.track.kind === videoTrack.kind);
+          if (sender) sender.replaceTrack(videoTrack);
+        } else if (viewerWaiting) {
+          createPeerConnection();
+        }
+      } catch (err) {
+        modeLabel.textContent = 'Camera error: ' + err.message;
+        modeLabel.style.color = '#ef4444';
+        alert('Camera error: ' + err.message);
+      }
+    }
+
+    async function createPeerConnection() {
+      // Close any existing PC cleanly before creating a new one
+      if (pc) {
+        pc.onicecandidate = null;
+        pc.close();
+        pc = null;
+      }
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ]
+      });
+
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          ws.send(JSON.stringify({ type: 'ice', candidate: event.candidate }));
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      ws.send(JSON.stringify({ type: 'offer', sdp: pc.localDescription }));
+      
+      wsStatus.textContent = 'STREAMING LIVE';
+      wsStatus.style.color = '#3bb4f2';
+    }
+
+    startBtn.onclick = () => startCamera(currentFacingMode);
+    
+    switchBtn.onclick = () => {
+      currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+      startCamera(currentFacingMode);
+    };
+
+  </script>
+</body>
+</html>

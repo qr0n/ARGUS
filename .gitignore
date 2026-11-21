@@ -13,3 +13,9 @@ node_modules
 # Biometric data and activity logs written by the servers at runtime
 **/dataset/*
 !**/dataset/.gitkeep
+
+# Role assignments (names/emails of staff): copy roles.example.json
+backend/config/roles.json
+
+# Private runtime data: face photos and activity log (see backend/storage/)
+backend/data/
