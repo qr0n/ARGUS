@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Camera, RefreshCw } from 'lucide-react';
 import './LiveCamera.css';
+import { DevicePanel } from '../components/DevicePanel';
 
 declare global {
   interface Window {
@@ -15,6 +16,8 @@ export function LiveCamera() {
     const [matches, setMatches] = useState<{name: string, conf: number}[]>([]);
     const [modelsLoaded, setModelsLoaded] = useState(false);
     const [deviceCamError, setDeviceCamError] = useState<string | null>(null);
+    // Which paired phone to watch (each phone is its own stream room).
+    const [cameraId, setCameraId] = useState<string | null>(null);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -112,7 +115,7 @@ export function LiveCamera() {
         let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
         let reconnectDelay = 1500;
 
-        if (feedMode !== 'phone' || !isLive) {
+        if (feedMode !== 'phone' || !isLive || !cameraId) {
             if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
             if (pcRef.current) { pcRef.current.close(); pcRef.current = null; }
             if (videoRef.current) {
@@ -120,13 +123,13 @@ export function LiveCamera() {
                 if (stream) stream.getTracks().forEach(t => t.stop());
                 videoRef.current.srcObject = null;
             }
-            setStatusText(modelsLoaded ? 'OFFLINE' : 'LOADING AI MODELS...');
+            setStatusText(!modelsLoaded ? 'LOADING AI MODELS...' : (isLive && feedMode === 'phone' && !cameraId) ? 'NO PHONE SELECTED' : 'OFFLINE');
             setMatches([]);
             return;
         }
         const isHttps = window.location.protocol === 'https:';
         const wsProtocol = isHttps ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.host}/ws-view`;
+        const wsUrl = `${wsProtocol}//${window.location.host}/ws-view?device=${encodeURIComponent(cameraId)}`;
 
         // Helper: cleanly tear down the peer connection
         const closePc = () => {
@@ -258,7 +261,7 @@ export function LiveCamera() {
             if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
             closePc();
         };
-    }, [isLive, modelsLoaded, feedMode]);
+    }, [isLive, modelsLoaded, feedMode, cameraId]);
 
     // Device camera mode — use laptop/device webcam directly
     useEffect(() => {
@@ -525,6 +528,7 @@ export function LiveCamera() {
                                 This Device
                             </button>
                         </div>
+                        {feedMode === 'phone' && <DevicePanel selectedId={cameraId} onSelect={setCameraId} />}
                         {feedMode === 'device' && deviceCamError && (
                             <p style={{ color: 'var(--error)', fontSize: '12px', margin: '6px 0 0', fontFamily: 'monospace' }}>
                                 ⚠ {deviceCamError}

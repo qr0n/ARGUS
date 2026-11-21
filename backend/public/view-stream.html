@@ -216,7 +216,11 @@
         let isDetecting = false;
 
         // ----------- 1. WebRTC SIGNALING -----------
-        const wsUrl = `wss://${window.location.host}/ws-view`;
+        // Each paired phone is its own room: /view-stream?device=<id>
+        // (the dashboard's Live Camera page lists devices and is the main viewer).
+        const deviceId = new URLSearchParams(window.location.search).get('device') || '';
+        if (!deviceId) statusPill.textContent = 'NO DEVICE SELECTED — use the dashboard Live Camera page';
+        const wsUrl = `wss://${window.location.host}/ws-view?device=${encodeURIComponent(deviceId)}`;
         const ws = new WebSocket(wsUrl);
         let pc = null;
 

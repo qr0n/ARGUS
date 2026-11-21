@@ -33,7 +33,7 @@ function safeReturnTo(value) {
     return value;
 }
 
-export async function createAuth({ port }) {
+export async function createAuth({ port, extraOrigins = [] }) {
     const sessionSecret = process.env.SESSION_SECRET || '';
     if (sessionSecret.length < 32) {
         throw new Error('SESSION_SECRET must be set to a random string of at least 32 characters (see backend/.env.example).');
@@ -46,7 +46,7 @@ export async function createAuth({ port }) {
     const redirectUri = new URL('/auth/callback', publicUrl).toString();
 
     const allowedOrigins = new Set(
-        [publicUrl, `https://localhost:${port}`, ...(process.env.ARGUS_ALLOWED_ORIGINS || '').split(',')]
+        [publicUrl, `https://localhost:${port}`, ...extraOrigins, ...(process.env.ARGUS_ALLOWED_ORIGINS || '').split(',')]
             .map(s => s && normalizeOrigin(s.trim()))
             .filter(Boolean)
     );
@@ -245,5 +245,5 @@ export async function createAuth({ port }) {
         });
     }
 
-    return { install, requireRole, authenticateUpgrade, roleAtLeast, providers };
+    return { install, requireRole, authenticateUpgrade, isAllowedOrigin, roleAtLeast, providers };
 }

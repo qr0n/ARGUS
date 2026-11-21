@@ -9,6 +9,7 @@ import { createAuth } from './auth/index.js';
 import { createLocalFaceStore, sniffImageExt, isValidStoredName } from './storage/faces.js';
 import { createLogStore } from './storage/logs.js';
 import { migrateLegacyDataset } from './storage/migrate.js';
+import { createDeviceRegistry, attachStreamer, attachViewer, DEVICE_COOKIE } from './devices.js';
 
 // Get local IPv4 address for logging
 function getLocalIp() {
@@ -28,12 +29,15 @@ const PORT = 3000;
 // to keep the server reachable from this machine only.
 const BIND_HOST = process.env.ARGUS_BIND_HOST || '0.0.0.0';
 const IP = getLocalIp();
+// Address phones use to reach this server (pairing links, streamer page origin).
+const STREAM_BASE_URL = (process.env.ARGUS_STREAM_URL || `https://${IP}:${PORT}`).replace(/\/+$/, '');
 
 // Private data (face photos, activity log). Never served as static files.
 const DATA_DIR = path.resolve(process.env.ARGUS_DATA_DIR || path.join(process.cwd(), 'data'));
 migrateLegacyDataset(path.join(process.cwd(), 'dataset'), DATA_DIR);
 const faces = createLocalFaceStore(path.join(DATA_DIR, 'faces'));
 const activityLog = createLogStore(path.join(DATA_DIR, 'logs.json'));
+const devices = createDeviceRegistry(path.join(DATA_DIR, 'devices.json'));
 
 const app = express();
 app.disable('x-powered-by');
@@ -57,7 +61,8 @@ try {
 
 let auth;
 try {
-    auth = await createAuth({ port: PORT });
+    // The phone streamer page is opened at the LAN address, so allow that origin too.
+    auth = await createAuth({ port: PORT, extraOrigins: [STREAM_BASE_URL] });
 } catch (e) {
     console.error(`❌ Auth configuration error: ${e.message}`);
     process.exit(1);
@@ -71,13 +76,9 @@ const sslOptions = {
 };
 
 const server = https.createServer(sslOptions, app);
-const wss = new WebSocketServer({ noServer: true });
-
-// WebSocket paths and the minimum role each one requires.
-const WS_ROUTES = {
-    '/ws-stream': 'operator',
-    '/ws-view': 'viewer',
-};
+// Signalling messages are small; cap frames to stop memory abuse.
+const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+wss.on('error', err => console.warn(`⚠️  WebSocket server error: ${err.message}`));
 
 function rejectUpgrade(socket, status, text) {
     socket.write(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
@@ -85,78 +86,93 @@ function rejectUpgrade(socket, status, text) {
 }
 
 // Authenticate before the WebSocket handshake completes.
+//   /ws-stream             paired device (device cookie) streams into its own room
+//   /ws-view?device=<id>   signed-in user (viewer or above) watches one device
 server.on('upgrade', async (req, socket, head) => {
     socket.on('error', () => socket.destroy());
-    const pathname = new URL(req.url || '/', 'https://localhost').pathname;
-    const minRole = WS_ROUTES[pathname];
-    if (!minRole) return rejectUpgrade(socket, 404, 'Not Found');
+    const url = new URL(req.url || '/', 'https://localhost');
 
-    let result;
-    try {
-        result = await auth.authenticateUpgrade(req);
-    } catch {
-        return rejectUpgrade(socket, 500, 'Internal Server Error');
+    if (!auth.isAllowedOrigin(req.headers.origin)) return rejectUpgrade(socket, 403, 'Forbidden');
+
+    if (url.pathname === '/ws-stream') {
+        const device = devices.deviceFromRequest(req);
+        if (!device) return rejectUpgrade(socket, 401, 'Unauthorized');
+        return wss.handleUpgrade(req, socket, head, ws => attachStreamer(devices, device, ws));
     }
-    if (!result) return rejectUpgrade(socket, 401, 'Unauthorized');
-    if (!auth.roleAtLeast(result.role, minRole)) return rejectUpgrade(socket, 403, 'Forbidden');
 
-    wss.handleUpgrade(req, socket, head, ws => {
-        req.argusPath = pathname;
-        req.argusUser = { ...result.identity, role: result.role };
-        wss.emit('connection', ws, req);
-    });
+    if (url.pathname === '/ws-view') {
+        const deviceId = url.searchParams.get('device') || '';
+        let result;
+        try {
+            result = await auth.authenticateUpgrade(req);
+        } catch {
+            return rejectUpgrade(socket, 500, 'Internal Server Error');
+        }
+        if (!result) return rejectUpgrade(socket, 401, 'Unauthorized');
+        if (!auth.roleAtLeast(result.role, 'viewer')) return rejectUpgrade(socket, 403, 'Forbidden');
+        if (!devices.exists(deviceId)) return rejectUpgrade(socket, 404, 'Not Found');
+        const user = { ...result.identity, role: result.role };
+        return wss.handleUpgrade(req, socket, head, ws => attachViewer(devices, deviceId, user, ws));
+    }
+
+    rejectUpgrade(socket, 404, 'Not Found');
 });
 
-// Connections
-let streamer = null;
-const viewers = new Set();
+// --- Camera devices ------------------------------------------------------------
+app.use('/api', express.json({ limit: '16kb' }));
 
-wss.on('connection', (ws, req) => {
-    const isStreamer = req.argusPath === '/ws-stream';
-    const who = req.argusUser?.email || req.argusUser?.sub || 'unknown';
+// List paired devices and whether each is streaming.
+app.get('/api/devices', requireRole('viewer'), (req, res) => {
+    res.set('Cache-Control', 'private, no-store');
+    res.json(devices.list());
+});
 
-    if (isStreamer) {
-        console.log(`📱 Streamer connected (${who})`);
-        streamer = ws;
-        viewers.forEach(viewer => {
-            if (streamer.readyState === ws.OPEN) streamer.send(JSON.stringify({ type: 'viewer-ready' }));
-            if (viewer.readyState === ws.OPEN) viewer.send(JSON.stringify({ type: 'streamer-present' }));
-        });
-    } else {
-        console.log(`💻 Viewer connected (${who})`);
-        viewers.add(ws);
-        if (streamer && streamer.readyState === ws.OPEN) {
-            streamer.send(JSON.stringify({ type: 'viewer-ready' }));
-            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'streamer-present' }));
+// Start pairing a phone: returns a one-time code and the link to open on the phone.
+app.post('/api/devices/pairing', requireRole('operator'), (req, res) => {
+    const pairing = devices.createPairing(req.body?.name, req.user.email || req.user.sub);
+    res.set('Cache-Control', 'no-store');
+    res.json({ ...pairing, pairUrl: `${STREAM_BASE_URL}/stream-video#code=${pairing.code}` });
+});
+
+// Called by the phone: redeem a pairing code for a device cookie. No user sign-in;
+// the one-time code is the credential, so attempts are rate-limited per address.
+app.post('/api/devices/pair', async (req, res, next) => {
+    try {
+        if (!devices.allowAttempt(req.socket.remoteAddress || 'unknown')) {
+            return res.status(429).json({ success: false, error: 'Too many attempts. Wait a few minutes and try again.' });
         }
+        const result = devices.redeem(req.body?.code);
+        if (!result) return res.status(400).json({ success: false, error: 'Invalid or expired pairing code' });
+        res.cookie(DEVICE_COOKIE, result.token, devices.cookieOptions());
+        console.log(`📱 Paired device "${result.device.name}" (${result.device.id}), code issued by ${result.device.createdBy}`);
+        await activityLog.append(
+            { activity: `Paired camera device "${result.device.name}".`, type: 'device', severity: 'info', status: 'reviewing' },
+            result.device.createdBy,
+        ).catch(e => console.error('Failed to write audit log entry:', e.message));
+        res.json({ success: true, device: devices.publicView(result.device) });
+    } catch (e) {
+        next(e);
     }
+});
 
-    ws.on('message', (message) => {
-        // Relay everything
-        if (isStreamer) {
-            viewers.forEach(viewer => {
-                if (viewer.readyState === ws.OPEN) {
-                    viewer.send(message.toString());
-                }
-            });
-        } else if (!isStreamer && streamer && streamer.readyState === ws.OPEN) {
-            streamer.send(message.toString());
-        }
-    });
+// Called by the phone: is this phone paired?
+app.get('/api/devices/self', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const device = devices.deviceFromRequest(req);
+    if (!device) return res.status(401).json({ success: false, error: 'This device is not paired' });
+    res.json(devices.publicView(device));
+});
 
-    ws.on('close', () => {
-        if (isStreamer) {
-            console.log('📱 Streamer disconnected');
-            if (streamer === ws) streamer = null;
-            viewers.forEach(viewer => {
-                if (viewer.readyState === ws.OPEN) viewer.send(JSON.stringify({ type: 'streamer-gone' }))
-            });
-        } else {
-            console.log('💻 Viewer disconnected');
-            viewers.delete(ws);
-            if (streamer && streamer.readyState === ws.OPEN) streamer.send(JSON.stringify({ type: 'viewer-gone' }));
-        }
-    });
+// Revoke a device; disconnects it immediately.
+app.delete('/api/devices/:id', requireRole('operator'), async (req, res) => {
+    const actor = req.user.email || req.user.sub;
+    if (!devices.revoke(req.params.id, actor)) return res.status(404).json({ success: false, error: 'Device not found' });
+    console.log(`📱 Device ${req.params.id} revoked by ${actor}`);
+    await activityLog.append(
+        { activity: `Removed camera device ${req.params.id}.`, type: 'device', severity: 'warning', status: 'reviewing' },
+        actor,
+    ).catch(e => console.error('Failed to write audit log entry:', e.message));
+    res.json({ success: true });
 });
 
 if (!fs.existsSync('public')) fs.mkdirSync('public');
@@ -244,7 +260,6 @@ app.get('/dataset/:filename', async (req, res, next) => {
 });
 
 // --- Activity log ------------------------------------------------------------
-app.use('/api', express.json({ limit: '16kb' }));
 
 app.get('/api/logs', requireRole('viewer'), async (req, res, next) => {
     try {
@@ -300,8 +315,8 @@ server.listen(PORT, BIND_HOST, () => {
       📡 Listening on  : ${BIND_HOST}:${PORT}${BIND_HOST === '0.0.0.0' ? `  (reachable on your network at https://${IP}:${PORT})` : ''}
       🖥️  Localhost     : https://localhost:${PORT}
 
-      🔗 1) Open Viewer on Laptop : https://${IP}:${PORT}/view-stream
-      🔗 2) Open Streamer on Phone: https://${IP}:${PORT}/stream-video
+      🔗 Dashboard → Live Camera → "Pair a phone" to connect a phone camera.
+      📱 Phones reach this server at ${STREAM_BASE_URL}
 
       [!] IMPORTANT regarding Self-Signed Certificates [!]
       If WebSockets fail to connect, ensure you have clicked "Advanced" -> "Proceed"

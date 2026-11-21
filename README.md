@@ -42,8 +42,19 @@ To use real accounts instead, set `ARGUS_AUTH_PROVIDERS=google` and/or `entra` i
 with the provider's client ID and secret (see `backend/.env.example`), and add each person to
 `config/roles.json`.
 
-> The phone streamer page cannot sign in yet (paired device tokens are planned), so phone streaming
-> is disabled while auth is enabled.
+### Connecting a phone camera
+
+Phones don't sign in; they are **paired** once and then stream with a device credential.
+
+1. Run the backend with the default `ARGUS_BIND_HOST` (0.0.0.0) so the phone can reach it, on a
+   trusted network only.
+2. In the dashboard, open **Live Camera → External Phone → Pair a phone** (operator or admin).
+3. On the phone, open the link shown (same Wi-Fi) and accept the certificate warning, or open
+   `https://<your-lan-ip>:3000/stream-video` and type the one-time code. Codes expire after 10 minutes.
+4. Tap **Start Camera**. The phone appears in the device list; select it to watch.
+
+Each phone is its own stream: only that phone can stream into it, and viewers pick which phone to
+watch. Remove a phone from the same panel to disconnect it immediately and revoke its credential.
 
 ---
 
