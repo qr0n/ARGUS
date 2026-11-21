@@ -42,6 +42,29 @@ To use real accounts instead, set `ARGUS_AUTH_PROVIDERS=google` and/or `entra` i
 with the provider's client ID and secret (see `backend/.env.example`), and add each person to
 `config/roles.json`.
 
+### Granting access
+
+Access is controlled by `backend/config/roles.json` (git-ignored). Each entry names the sign-in
+provider, the person, and a role:
+
+```json
+{
+  "users": [
+    { "provider": "dev",    "email": "admin@argus.test",       "role": "admin" },
+    { "provider": "google", "email": "jane@yourcompany.com",   "role": "operator" },
+    { "provider": "entra",  "sub": "AAAAAAAAAAAAAAAAAAAAAIkzqFVrSaSaFHy782bbtaQ", "role": "viewer" }
+  ]
+}
+```
+
+- **Roles:** `viewer` (see everything), `operator` (+ stream, pair phones, create/review alerts),
+  `admin` (+ add and remove case photos).
+- **Matching:** by `email` for `dev` and `google` (Google verifies emails). For `entra`, use `sub`:
+  ask the person to sign in once — the "Access not granted" screen and the server log show their
+  `sub` — then add it.
+- Changes apply on the next request; no restart needed. Removing someone revokes their access
+  immediately. Anyone not listed can sign in but sees "Access not granted".
+
 ### Connecting a phone camera
 
 Phones don't sign in; they are **paired** once and then stream with a device credential.
