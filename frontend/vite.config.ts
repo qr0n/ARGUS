@@ -6,6 +6,12 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
+      // Sign-in, callback, logout and session info are handled by the backend.
+      '/auth': {
+        target: 'https://localhost:3000',
+        secure: false,
+        changeOrigin: true
+      },
       '/models': {
         target: 'https://localhost:3000',
         secure: false,

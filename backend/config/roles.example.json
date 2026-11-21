@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy to roles.json (git-ignored). Roles: viewer < operator < admin. Match by provider + sub (preferred), or provider + email when the provider marks the email as verified (dev, Google). For Microsoft Entra use sub: it is printed in the server log when someone signs in.",
+  "users": [
+    { "provider": "dev", "email": "admin@argus.test", "role": "admin" },
+    { "provider": "dev", "email": "operator@argus.test", "role": "operator" },
+    { "provider": "dev", "email": "viewer@argus.test", "role": "viewer" }
+  ]
+}

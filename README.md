@@ -6,6 +6,42 @@ features, usage, and architecture.
 
 ---
 
+## Running locally (development)
+
+Requires Node.js 22.9 or newer. Everything requires sign-in; there is no anonymous access.
+
+```bash
+# Backend (first time)
+cd backend
+npm install
+node generate-certs.js                       # fresh TLS pair for this machine (never commit)
+cp .env.example .env                         # then set SESSION_SECRET (command is in the file)
+cp config/roles.example.json config/roles.json
+
+# Terminal 1 — local login server (development only, accepts any username)
+npm run dev:idp
+
+# Terminal 2 — backend
+npm run dev
+
+# Terminal 3 — dashboard
+cd frontend && npm install && npm run dev    # open http://localhost:5173
+```
+
+Sign in with `admin@argus.test`, `operator@argus.test` or `viewer@argus.test` (any password).
+Roles: **viewer** can see the dashboard, photos, logs and live view; **operator** can also stream and
+create/review alerts; **admin** can also add and remove case photos. Anyone not listed in
+`config/roles.json` can sign in but is denied access.
+
+To use real accounts instead, set `ARGUS_AUTH_PROVIDERS=google` and/or `entra` in `backend/.env`
+with the provider's client ID and secret (see `backend/.env.example`), and add each person to
+`config/roles.json`.
+
+> The phone streamer page cannot sign in yet (paired device tokens are planned), so phone streaming
+> is disabled while auth is enabled.
+
+---
+
 ## ⚠️ Security notice: SSL private keys removed from git history (2026-09-04)
 
 The git history of this repository was rewritten to permanently remove committed SSL private

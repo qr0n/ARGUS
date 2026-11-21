@@ -1,8 +1,15 @@
-import { Bell, Search, Info } from 'lucide-react';
+import { Bell, Search, Info, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../auth/context';
+
+const ROLE_LABELS: Record<string, string> = { admin: 'Administrator', operator: 'Operator', viewer: 'Viewer' };
 
 export function TopBar({ title, subtitle, onShowOnboarding }: { title: string, subtitle: string, onShowOnboarding: () => void }) {
     const navigate = useNavigate();
+    const { user, signOut } = useAuth();
+    const displayName = user.name || user.email || 'Signed in';
+    const initials = displayName.split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map(s => s[0]!.toUpperCase()).join('') || '?';
+    const roleLabel = (user.role && ROLE_LABELS[user.role]) || '';
 
     return (
         <header className="topbar">
@@ -27,12 +34,15 @@ export function TopBar({ title, subtitle, onShowOnboarding }: { title: string, s
 
             <div className="topbar-right">
                 <div className="profile-chip">
-                    <div className="avatar-initials">KR</div>
+                    <div className="avatar-initials">{initials}</div>
                     <div className="profile-info">
-                        <span className="profile-name">K. Reid</span>
-                        <span className="profile-access">Level 3 Access</span>
+                        <span className="profile-name">{displayName}</span>
+                        <span className="profile-access">{roleLabel}</span>
                     </div>
                 </div>
+                <button className="topbar-info-btn" onClick={signOut} title="Sign out">
+                    <LogOut size={16} /> Sign out
+                </button>
             </div>
         </header>
     );
