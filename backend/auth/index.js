@@ -11,9 +11,11 @@ import session from 'express-session';
 import * as client from 'openid-client';
 import { loadProviders } from './providers.js';
 import { createRoleStore, roleAtLeast } from './roles.js';
+import { createRateLimiter } from '../security/rateLimit.js';
 
 const SESSION_COOKIE = 'argus.sid';
 const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // absolute lifetime: one working shift
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;        // signed out after 30 minutes without a request
 const LOGIN_PENDING_MAX_AGE_MS = 10 * 60 * 1000;
 
 function normalizeOrigin(value) {
@@ -33,7 +35,15 @@ function safeReturnTo(value) {
     return value;
 }
 
-export async function createAuth({ port, extraOrigins = [] }) {
+/**
+ * @param onSecurityEvent  called with { type, identity?, role?, sessionId?, detail? } for
+ *                         sign-in, sign-in failure, sign-out and idle expiry (for the audit
+ *                         log and to drop live connections).
+ */
+export async function createAuth({ port, extraOrigins = [], onSecurityEvent = () => {} }) {
+    const emit = event => {
+        try { onSecurityEvent(event); } catch (e) { console.error('Security event handler failed:', e.message); }
+    };
     const sessionSecret = process.env.SESSION_SECRET || '';
     if (sessionSecret.length < 32) {
         throw new Error('SESSION_SECRET must be set to a random string of at least 32 characters (see backend/.env.example).');
@@ -58,9 +68,11 @@ export async function createAuth({ port, extraOrigins = [] }) {
 
     // NOTE: MemoryStore is fine for local development (sessions end on restart).
     // A shared store (e.g. Redis or the database) is required before production.
+    const store = new session.MemoryStore();
     const sessionMiddleware = session({
         name: SESSION_COOKIE,
         secret: sessionSecret,
+        store,
         resave: false,
         saveUninitialized: false,
         rolling: false,
@@ -109,13 +121,36 @@ export async function createAuth({ port, extraOrigins = [] }) {
         };
     }
 
+    const isIdle = sess => !!sess?.lastSeenAt && Date.now() - sess.lastSeenAt > IDLE_TIMEOUT_MS;
+
+    // End sessions that have been idle too long; otherwise record activity
+    // (at most once a minute, to avoid a store write on every request).
+    function idleTimeout(req, res, next) {
+        const sess = req.session;
+        if (!sess?.user) return next();
+        if (isIdle(sess)) {
+            const identity = sess.user, sessionId = req.sessionID;
+            return sess.destroy(() => {
+                emit({ type: 'session-expired', identity, sessionId });
+                next();
+            });
+        }
+        if (!sess.lastSeenAt || Date.now() - sess.lastSeenAt > 60_000) sess.lastSeenAt = Date.now();
+        next();
+    }
+
+    const loginLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 20, name: 'sign-in' });
+
     function install(app) {
         app.use(sessionMiddleware);
+        app.use(idleTimeout);
         app.use(originCheck);
 
         app.get('/auth/providers', (req, res) => {
             res.json([...providers.values()].map(p => ({ id: p.id, label: p.label })));
         });
+
+        app.use(['/auth/login', '/auth/callback'], loginLimiter.middleware);
 
         app.get('/auth/login', async (req, res, next) => {
             try {
@@ -158,10 +193,10 @@ export async function createAuth({ port, extraOrigins = [] }) {
             if (req.session) delete req.session.loginPending;
 
             if (!pending || Date.now() - pending.createdAt > LOGIN_PENDING_MAX_AGE_MS) {
-                return res.status(400).send('Sign-in expired or was not started here. Please try again.');
+                return res.redirect('/?signin=expired');
             }
             const provider = providers.get(pending.provider);
-            if (!provider) return res.status(400).send('Unknown sign-in provider');
+            if (!provider) return res.redirect('/?signin=failed');
 
             let claims;
             try {
@@ -176,12 +211,14 @@ export async function createAuth({ port, extraOrigins = [] }) {
                 claims = tokens.claims();
             } catch (e) {
                 console.warn(`🔐 Sign-in failed (${pending.provider}): ${e.message}`);
-                return res.status(401).send('Sign-in failed. Please try again.');
+                emit({ type: 'login-failed', detail: `${pending.provider}: token validation failed` });
+                return res.redirect('/?signin=failed');
             }
 
-            if (!claims?.sub) return res.status(401).send('Sign-in failed: no subject in ID token.');
+            if (!claims?.sub) return res.redirect('/?signin=failed');
             if (provider.allowedHostedDomain && claims.hd !== provider.allowedHostedDomain) {
-                return res.status(403).send('This account is not part of the allowed organisation.');
+                emit({ type: 'login-failed', detail: `${provider.id}: account outside allowed domain` });
+                return res.redirect('/?signin=domain');
             }
 
             const identity = {
@@ -196,17 +233,21 @@ export async function createAuth({ port, extraOrigins = [] }) {
             req.session.regenerate(err => {
                 if (err) return res.status(500).send('Could not start session');
                 req.session.user = identity;
+                req.session.lastSeenAt = Date.now();
                 req.session.save(err2 => {
                     if (err2) return res.status(500).send('Could not start session');
                     const role = roles.roleFor(identity);
                     console.log(`🔐 Signed in: ${identity.provider} sub=${identity.sub} email=${identity.email || '-'} role=${role || 'NONE'}`);
+                    emit({ type: role ? 'login' : 'login-no-access', identity, role, sessionId: req.sessionID });
                     res.redirect(pending.returnTo);
                 });
             });
         });
 
         app.post('/auth/logout', (req, res) => {
+            const identity = currentIdentity(req), sessionId = req.sessionID;
             const done = () => {
+                if (identity) emit({ type: 'logout', identity, sessionId });
                 res.clearCookie(SESSION_COOKIE, { path: '/', httpOnly: true, secure: true, sameSite: 'lax' });
                 res.json({ success: true });
             };
@@ -230,7 +271,7 @@ export async function createAuth({ port, extraOrigins = [] }) {
 
     /**
      * Authenticate a WebSocket upgrade request before the handshake completes.
-     * Resolves to { identity, role } or null.
+     * Resolves to { identity, role, sessionId } or null.
      */
     function authenticateUpgrade(req) {
         return new Promise(resolve => {
@@ -239,11 +280,24 @@ export async function createAuth({ port, extraOrigins = [] }) {
             // response object is never written to.
             sessionMiddleware(req, {}, () => {
                 const identity = currentIdentity(req);
-                if (!identity) return resolve(null);
-                resolve({ identity, role: roles.roleFor(identity) });
+                if (!identity || isIdle(req.session)) return resolve(null);
+                resolve({ identity, role: roles.roleFor(identity), sessionId: req.sessionID });
             });
         });
     }
 
-    return { install, requireRole, authenticateUpgrade, isAllowedOrigin, roleAtLeast, providers };
+    /**
+     * Re-check an open connection: is its session still live (not signed out,
+     * not expired, not idle) and does the person still hold at least `minRole`?
+     */
+    function stillAuthorized(sessionId, identity, minRole) {
+        return new Promise(resolve => {
+            store.get(sessionId, (err, sess) => {
+                if (err || !sess?.user || isIdle(sess)) return resolve(false);
+                resolve(roleAtLeast(roles.roleFor(identity), minRole));
+            });
+        });
+    }
+
+    return { install, requireRole, authenticateUpgrade, stillAuthorized, isAllowedOrigin, roleAtLeast, providers };
 }

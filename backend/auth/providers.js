@@ -23,7 +23,7 @@ const DEFINITIONS = {
         }
         return {
             id: 'dev',
-            label: 'Local dev login',
+            label: 'Development sign-in',
             issuer: process.env.ARGUS_DEV_IDP_ISSUER || 'http://localhost:4000',
             clientId: process.env.ARGUS_DEV_IDP_CLIENT_ID || 'argus-local',
             clientSecret: process.env.ARGUS_DEV_IDP_CLIENT_SECRET || 'argus-local-dev-secret',

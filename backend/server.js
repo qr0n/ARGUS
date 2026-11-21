@@ -10,6 +10,8 @@ import { createLocalFaceStore, sniffImageExt, isValidStoredName } from './storag
 import { createLogStore } from './storage/logs.js';
 import { migrateLegacyDataset } from './storage/migrate.js';
 import { createDeviceRegistry, attachStreamer, attachViewer, DEVICE_COOKIE } from './devices.js';
+import { securityHeaders } from './security/headers.js';
+import { stripImageMetadata } from './storage/stripMetadata.js';
 
 // Get local IPv4 address for logging
 function getLocalIp() {
@@ -41,14 +43,44 @@ const devices = createDeviceRegistry(path.join(DATA_DIR, 'devices.json'));
 
 const app = express();
 app.disable('x-powered-by');
-app.use((req, res, next) => {
-    res.set({
-        'X-Content-Type-Options': 'nosniff',
-        'X-Frame-Options': 'DENY',
-        'Referrer-Policy': 'no-referrer',
-    });
-    next();
-});
+app.use(securityHeaders);
+
+// Open viewer connections, so they can be cut when the viewer signs out, their
+// session expires, or their role is removed. Entry: { ws, sessionId, identity }.
+const liveViewers = new Set();
+
+function closeViewers(predicate, reason) {
+    for (const v of liveViewers) {
+        if (predicate(v)) {
+            v.ws.close(4401, reason);
+            liveViewers.delete(v);
+        }
+    }
+}
+
+const SECURITY_EVENT_TEXT = {
+    'login': i => `Signed in (${i.provider}).`,
+    'login-no-access': i => `Signed in without access (${i.provider}); not listed in roles.`,
+    'logout': () => 'Signed out.',
+    'session-expired': () => 'Session ended after inactivity.',
+};
+
+// Sign-ins, sign-outs and failures go to the audit log; ending a session also
+// disconnects that session's live video immediately.
+function onSecurityEvent(event) {
+    const actor = event.identity ? (event.identity.email || event.identity.sub) : 'unknown';
+    const text = event.type === 'login-failed'
+        ? `Failed sign-in attempt (${event.detail}).`
+        : SECURITY_EVENT_TEXT[event.type]?.(event.identity);
+    if (text) {
+        const severity = event.type === 'login-failed' || event.type === 'login-no-access' ? 'warning' : 'info';
+        activityLog.append({ activity: text, type: 'auth', severity, status: 'reviewing' }, actor)
+            .catch(e => console.error('Failed to write audit log entry:', e.message));
+    }
+    if ((event.type === 'logout' || event.type === 'session-expired') && event.sessionId) {
+        closeViewers(v => v.sessionId === event.sessionId, 'Signed out');
+    }
+}
 
 // Verify certs exist
 try {
@@ -62,7 +94,7 @@ try {
 let auth;
 try {
     // The phone streamer page is opened at the LAN address, so allow that origin too.
-    auth = await createAuth({ port: PORT, extraOrigins: [STREAM_BASE_URL] });
+    auth = await createAuth({ port: PORT, extraOrigins: [STREAM_BASE_URL], onSecurityEvent });
 } catch (e) {
     console.error(`❌ Auth configuration error: ${e.message}`);
     process.exit(1);
@@ -112,11 +144,28 @@ server.on('upgrade', async (req, socket, head) => {
         if (!auth.roleAtLeast(result.role, 'viewer')) return rejectUpgrade(socket, 403, 'Forbidden');
         if (!devices.exists(deviceId)) return rejectUpgrade(socket, 404, 'Not Found');
         const user = { ...result.identity, role: result.role };
-        return wss.handleUpgrade(req, socket, head, ws => attachViewer(devices, deviceId, user, ws));
+        return wss.handleUpgrade(req, socket, head, ws => {
+            const entry = { ws, sessionId: result.sessionId, identity: result.identity };
+            liveViewers.add(entry);
+            ws.on('close', () => liveViewers.delete(entry));
+            attachViewer(devices, deviceId, user, ws);
+        });
     }
 
     rejectUpgrade(socket, 404, 'Not Found');
 });
+
+// Every 15 s, re-check each open viewer: session still live and role still
+// held? Removing someone from roles.json cuts their live view within 15 s.
+setInterval(async () => {
+    for (const v of [...liveViewers]) {
+        if (!(await auth.stillAuthorized(v.sessionId, v.identity, 'viewer'))) {
+            console.log(`🔌 Closing live view for ${v.identity.email || v.identity.sub}: access ended`);
+            v.ws.close(4401, 'Access ended');
+            liveViewers.delete(v);
+        }
+    }
+}, 15_000).unref();
 
 // --- Camera devices ------------------------------------------------------------
 app.use('/api', express.json({ limit: '16kb' }));
@@ -220,7 +269,14 @@ app.post('/dataset/upload', requireRole('admin'), upload.single('photo'), async 
         const ext = sniffImageExt(req.file.buffer);
         if (!ext) return res.status(400).json({ success: false, error: 'File is not a JPG, PNG or WEBP image' });
         const subject = typeof req.body.subject === 'string' ? req.body.subject : '';
-        const name = await faces.save(subject, req.file.buffer, ext);
+        // Drop GPS location, device details and other embedded metadata before storing.
+        let clean;
+        try {
+            clean = stripImageMetadata(req.file.buffer, ext);
+        } catch {
+            return res.status(400).json({ success: false, error: 'Image file is damaged or unsupported' });
+        }
+        const name = await faces.save(subject, clean, ext);
         console.log(`🗂️  Dataset upload "${name}" by ${actorOf(req)}`);
         await audit(req, `Added photo "${name}" to Case Profiles.`, 'upload');
         res.json({ success: true, file: name });
