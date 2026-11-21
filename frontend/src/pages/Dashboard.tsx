@@ -9,7 +9,7 @@ export function Dashboard() {
     const [datasetFiles, setDatasetFiles] = useState<string[]>([]);
     // Real camera status from paired phones (see /api/devices).
     const [cameras, setCameras] = useState<{ paired: number; online: number } | null>(null);
-    const [activeCases, setActiveCases] = useState<{name: string, status: string, severity: string, filename: string}[]>([]);
+    const [activeCases, setActiveCases] = useState<{name: string, filename: string}[]>([]);
     
     useEffect(() => {
         fetch('/api/logs')
@@ -26,14 +26,10 @@ export function Dashboard() {
             .then((data: string[]) => {
                 setDatasetFiles(data);
                 setDatasetLength(data.length);
-                const cases = data.slice(0, 4).map((filename: string, i: number) => {
+                // Only real data: name (from file name) and photo. No case status is stored yet.
+                const cases = data.slice(0, 4).map((filename: string) => {
                     const name = filename.replace(/\.[^.]+$/, '').replace(/_[0-9]+$/, '').replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-                    return {
-                        name,
-                        status: i % 2 === 0 ? 'Wanted' : 'Missing',
-                        severity: i === 0 || i === 2 ? 'High Priority' : 'Standard Priority',
-                        filename
-                    };
+                    return { name, filename };
                 });
                 setActiveCases(cases);
             })
@@ -96,7 +92,7 @@ export function Dashboard() {
                     {/* Active Cases */}
                     <div className="card active-cases-card" style={{ gridColumn: '1 / -1' }}>
                         <div className="card-header">
-                            <h4>Active Cases</h4>
+                            <h4>Case Profiles</h4>
                         </div>
                         <div className="cases-grid">
                             {activeCases.length > 0 ? activeCases.map((ac, i) => (
@@ -106,10 +102,6 @@ export function Dashboard() {
                                     </div>
                                     <div className="case-info">
                                         <span className="case-name">{ac.name}</span>
-                                        <div className="case-tags">
-                                            <span className={`badge ${ac.status === 'Missing' ? 'badge-amber' : 'badge-red'}`} style={{ opacity: 0.9 }}>{ac.status.toUpperCase()}</span>
-                                            <span className={`badge ${ac.severity === 'High Priority' ? 'badge-red' : 'badge-blue'}`}>{ac.severity.toUpperCase()}</span>
-                                        </div>
                                     </div>
                                 </div>
                             )) : (
