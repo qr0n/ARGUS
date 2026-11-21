@@ -33,6 +33,11 @@ Roles: **viewer** can see the dashboard, photos, logs and live view; **operator*
 create/review alerts; **admin** can also add and remove case photos. Anyone not listed in
 `config/roles.json` can sign in but is denied access.
 
+Face photos and the activity log are stored privately in `backend/data/` (git-ignored) and are only
+returned through signed-in API routes. If you have photos in the old `backend/dataset/` folder, they
+are moved there automatically the first time the server starts. New uploads never overwrite an
+existing photo: a second photo of "Jane Doe" is stored as `jane_doe_2.jpg`.
+
 To use real accounts instead, set `ARGUS_AUTH_PROVIDERS=google` and/or `entra` in `backend/.env`
 with the provider's client ID and secret (see `backend/.env.example`), and add each person to
 `config/roles.json`.

@@ -6,6 +6,9 @@ import { WebSocketServer } from 'ws';
 import os from 'os';
 import multer from 'multer';
 import { createAuth } from './auth/index.js';
+import { createLocalFaceStore, sniffImageExt, isValidStoredName } from './storage/faces.js';
+import { createLogStore } from './storage/logs.js';
+import { migrateLegacyDataset } from './storage/migrate.js';
 
 // Get local IPv4 address for logging
 function getLocalIp() {
@@ -25,11 +28,23 @@ const PORT = 3000;
 // to keep the server reachable from this machine only.
 const BIND_HOST = process.env.ARGUS_BIND_HOST || '0.0.0.0';
 const IP = getLocalIp();
-const DATASET_DIR = path.join(process.cwd(), 'dataset');
-const IMAGE_EXT = /\.(jpe?g|png|webp)$/i;
+
+// Private data (face photos, activity log). Never served as static files.
+const DATA_DIR = path.resolve(process.env.ARGUS_DATA_DIR || path.join(process.cwd(), 'data'));
+migrateLegacyDataset(path.join(process.cwd(), 'dataset'), DATA_DIR);
+const faces = createLocalFaceStore(path.join(DATA_DIR, 'faces'));
+const activityLog = createLogStore(path.join(DATA_DIR, 'logs.json'));
 
 const app = express();
 app.disable('x-powered-by');
+app.use((req, res, next) => {
+    res.set({
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+    });
+    next();
+});
 
 // Verify certs exist
 try {
@@ -144,8 +159,6 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-// Create dataset/public dirs if not present
-if (!fs.existsSync(DATASET_DIR)) fs.mkdirSync(DATASET_DIR);
 if (!fs.existsSync('public')) fs.mkdirSync('public');
 
 // Public, non-sensitive assets: static pages (they hold no data themselves)
@@ -161,119 +174,105 @@ app.get('/view-stream', (req, res) => {
     res.sendFile(path.join(process.cwd(), 'public', 'view-stream.html'));
 });
 
-// Everything under /dataset requires a signed-in user with at least the viewer role.
-app.use('/dataset', requireRole('viewer'));
+const actorOf = req => req.user.email || req.user.sub;
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, DATASET_DIR);
-    },
-    filename: (req, file, cb) => {
-        const subject = req.body.subject || 'Unknown';
-        const safeSubject = subject.replace(/[^a-zA-Z0-9]/g, '_');
-        const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-        cb(null, safeSubject + ext);
-    }
-});
-const upload = multer({
-    storage,
-    limits: { fileSize: 10 * 1024 * 1024, files: 1 },
-    fileFilter: (req, file, cb) => cb(null, IMAGE_EXT.test(file.originalname || '')),
-});
-
-app.post('/dataset/upload', requireRole('admin'), upload.single('photo'), (req, res) => {
-    if (!req.file) return res.status(400).json({ success: false, error: 'No image uploaded (JPG, PNG or WEBP)' });
-    console.log(`🗂️  Dataset upload "${req.file.filename}" by ${req.user.email || req.user.sub}`);
-    res.json({ success: true, file: req.file.filename });
-});
-
-app.delete('/dataset/:filename', requireRole('admin'), (req, res) => {
-    const filename = req.params.filename;
-    if (filename !== path.basename(filename) || filename.includes('..') || !IMAGE_EXT.test(filename)) {
-        return res.status(403).json({ success: false, error: 'Invalid config' });
-    }
-    const filepath = path.join(DATASET_DIR, filename);
-    if (!fs.existsSync(filepath)) {
-        return res.status(404).json({ success: false, error: 'File not found' });
-    }
-    fs.unlinkSync(filepath);
-    console.log(`🗑️  Dataset delete "${filename}" by ${req.user.email || req.user.sub}`);
-    res.json({ success: true });
-});
-
-app.get('/dataset', (req, res) => {
+// Server-side audit entry. Failures are logged but never block the action itself.
+async function audit(req, activity, type, severity = 'info') {
     try {
-        const files = fs.readdirSync(DATASET_DIR);
-        const images = files.filter(f => IMAGE_EXT.test(f));
-        res.json(images);
+        await activityLog.append({ activity, type, severity, status: 'reviewing' }, actorOf(req));
     } catch (e) {
-        res.status(500).json({ error: 'Failed to read dataset directory' });
+        console.error('Failed to write audit log entry:', e.message);
     }
-});
-
-// Serve dataset images only (never logs.json or other files in the folder).
-app.use('/dataset', (req, res, next) => {
-    if (!IMAGE_EXT.test(req.path)) return res.status(404).end();
-    next();
-}, express.static(DATASET_DIR, { dotfiles: 'deny', index: false }));
-
-// Activity Logs API
-app.use(express.json({ limit: '64kb' }));
-
-const LOGS_FILE = path.join(DATASET_DIR, 'logs.json');
-if (!fs.existsSync(LOGS_FILE)) {
-    fs.writeFileSync(LOGS_FILE, JSON.stringify([]));
 }
 
-app.get('/api/logs', requireRole('viewer'), (req, res) => {
+// --- Case-profile face photos ------------------------------------------------
+// Every route below requires at least the viewer role. Photos are streamed
+// from private storage only after that check; they are never static files.
+app.use('/dataset', requireRole('viewer'));
+
+// Keep uploads in memory (max 10 MB) so the content can be verified before
+// anything is written to storage.
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 5, fieldSize: 1024 },
+});
+
+app.post('/dataset/upload', requireRole('admin'), upload.single('photo'), async (req, res, next) => {
     try {
-        const logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
-        res.json(logs);
+        if (!req.file) return res.status(400).json({ success: false, error: 'No photo uploaded' });
+        const ext = sniffImageExt(req.file.buffer);
+        if (!ext) return res.status(400).json({ success: false, error: 'File is not a JPG, PNG or WEBP image' });
+        const subject = typeof req.body.subject === 'string' ? req.body.subject : '';
+        const name = await faces.save(subject, req.file.buffer, ext);
+        console.log(`🗂️  Dataset upload "${name}" by ${actorOf(req)}`);
+        await audit(req, `Added photo "${name}" to Case Profiles.`, 'upload');
+        res.json({ success: true, file: name });
     } catch (e) {
-        res.status(500).json({ error: 'Failed to read logs' });
+        if (e.status) return res.status(e.status).json({ success: false, error: e.message });
+        next(e);
     }
 });
 
-app.post('/api/logs', requireRole('operator'), (req, res) => {
+app.delete('/dataset/:filename', requireRole('admin'), async (req, res, next) => {
     try {
-        const newLog = req.body;
-        // { time, activity, type, severity, status, id }
-        newLog.id = Date.now().toString() + Math.floor(Math.random() * 10000).toString();
-        newLog.status = newLog.status || 'unreviewed';
-        if (!newLog.time) {
-            newLog.time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        }
-        newLog.actor = req.user.email || req.user.sub;
-
-        const logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
-        logs.unshift(newLog); // Add to beginning
-
-        // Keep only the latest 100 logs
-        if (logs.length > 100) logs.pop();
-
-        fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 2));
-        res.json({ success: true, log: newLog });
+        const name = req.params.filename;
+        if (!isValidStoredName(name)) return res.status(400).json({ success: false, error: 'Invalid file name' });
+        if (!(await faces.remove(name))) return res.status(404).json({ success: false, error: 'File not found' });
+        console.log(`🗑️  Dataset delete "${name}" by ${actorOf(req)}`);
+        await audit(req, `Removed photo "${name}" from Case Profiles.`, 'delete', 'warning');
+        res.json({ success: true });
     } catch (e) {
-        res.status(500).json({ error: 'Failed to write log' });
+        next(e);
     }
 });
 
-app.patch('/api/logs/:id/status', requireRole('operator'), (req, res) => {
+app.get('/dataset', async (req, res, next) => {
     try {
-        const { id } = req.params;
-        const { status } = req.body;
-        const logs = JSON.parse(fs.readFileSync(LOGS_FILE, 'utf-8'));
-
-        const log = logs.find(l => l.id === id);
-        if (log) {
-            log.status = status;
-            fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 2));
-            res.json({ success: true, log });
-        } else {
-            res.status(404).json({ error: 'Log not found' });
-        }
+        res.set('Cache-Control', 'private, no-store');
+        res.json(await faces.list());
     } catch (e) {
-        res.status(500).json({ error: 'Failed to update log' });
+        next(e);
+    }
+});
+
+app.get('/dataset/:filename', async (req, res, next) => {
+    try {
+        if (!(await faces.send(res, req.params.filename))) res.status(404).end();
+    } catch (e) {
+        next(e);
+    }
+});
+
+// --- Activity log ------------------------------------------------------------
+app.use('/api', express.json({ limit: '16kb' }));
+
+app.get('/api/logs', requireRole('viewer'), async (req, res, next) => {
+    try {
+        res.set('Cache-Control', 'private, no-store');
+        res.json(await activityLog.list());
+    } catch (e) {
+        next(e);
+    }
+});
+
+app.post('/api/logs', requireRole('operator'), async (req, res, next) => {
+    try {
+        const log = await activityLog.append(req.body, actorOf(req));
+        res.json({ success: true, log });
+    } catch (e) {
+        if (e.status) return res.status(e.status).json({ success: false, error: e.message });
+        next(e);
+    }
+});
+
+app.patch('/api/logs/:id/status', requireRole('operator'), async (req, res, next) => {
+    try {
+        const log = await activityLog.setStatus(req.params.id, req.body?.status, actorOf(req));
+        if (!log) return res.status(404).json({ success: false, error: 'Log not found' });
+        res.json({ success: true, log });
+    } catch (e) {
+        if (e.status) return res.status(e.status).json({ success: false, error: e.message });
+        next(e);
     }
 });
 
@@ -281,6 +280,14 @@ app.patch('/api/logs/:id/status', requireRole('operator'), (req, res) => {
 app.use((err, req, res, next) => {
     if (err && err.code === 'LIMIT_FILE_SIZE') {
         return res.status(413).json({ success: false, error: 'File too large (max 10MB)' });
+    }
+    if (err instanceof multer.MulterError) {
+        return res.status(400).json({ success: false, error: 'Invalid upload' });
+    }
+    // Client errors raised by body parsers (malformed JSON, body too large, ...).
+    const status = err?.status || err?.statusCode;
+    if (status >= 400 && status < 500) {
+        return res.status(status).json({ success: false, error: 'Invalid request' });
     }
     console.error('Unhandled server error:', err);
     res.status(500).json({ success: false, error: 'Internal server error' });

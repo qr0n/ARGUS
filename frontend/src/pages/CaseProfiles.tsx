@@ -86,18 +86,11 @@ export function CaseProfiles() {
       fd.append('subject', subjectName.trim());
       fd.append('photo', photoFile, photoFile.name);
       const res = await fetch(`${SERVER}/dataset/upload`, { method: 'POST', body: fd });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Upload failed');
-      
-      // Activity Log 
-      try {
-          await fetch('/api/logs', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ activity: `Added ${subjectName.trim()} to Case Profiles dataset.`, type: 'upload', severity: 'info' })
-          });
-      } catch (err) { console.error("Failed to log activity", err); }
-      
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 403) throw new Error('Only administrators can add case photos.');
+      if (!res.ok || !data.success) throw new Error(data.error || 'Upload failed');
+      // The server records this upload in the activity log.
+
       setShowModal(false);
       setSubjectName('');
       setPhotoFile(null);
@@ -113,19 +106,14 @@ export function CaseProfiles() {
   const handleDelete = async (filename: string) => {
     if (!confirm(`Remove "${toDisplayName(filename)}" from the dataset?`)) return;
     try {
-      await fetch(`${SERVER}/dataset/${filename}`, { method: 'DELETE' });
+      const res = await fetch(`${SERVER}/dataset/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+      if (res.status === 403) { alert('Only administrators can remove case photos.'); return; }
+      if (!res.ok) { alert('Could not remove the photo. Please try again.'); return; }
+      // The server records this removal in the activity log.
       setProfiles(prev => prev.filter(p => p.filename !== filename));
-      
-      // Activity Log 
-      try {
-          await fetch('/api/logs', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ activity: `Removed ${toDisplayName(filename)} from Case Profiles dataset.`, type: 'delete', severity: 'warning' })
-          });
-      } catch (err) { console.error("Failed to log activity", err); }
-      
-    } catch {}
+    } catch {
+      alert('Could not reach the server.');
+    }
   };
 
   const filtered = profiles.filter(p => {
