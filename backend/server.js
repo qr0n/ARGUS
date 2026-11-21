@@ -166,10 +166,11 @@ app.get('/api/devices/self', (req, res) => {
 // Revoke a device; disconnects it immediately.
 app.delete('/api/devices/:id', requireRole('operator'), async (req, res) => {
     const actor = req.user.email || req.user.sub;
-    if (!devices.revoke(req.params.id, actor)) return res.status(404).json({ success: false, error: 'Device not found' });
-    console.log(`📱 Device ${req.params.id} revoked by ${actor}`);
+    const device = devices.revoke(req.params.id, actor);
+    if (!device) return res.status(404).json({ success: false, error: 'Device not found' });
+    console.log(`📱 Device "${device.name}" (${device.id}) revoked by ${actor}`);
     await activityLog.append(
-        { activity: `Removed camera device ${req.params.id}.`, type: 'device', severity: 'warning', status: 'reviewing' },
+        { activity: `Removed camera device "${device.name}".`, type: 'device', severity: 'warning', status: 'reviewing' },
         actor,
     ).catch(e => console.error('Failed to write audit log entry:', e.message));
     res.json({ success: true });

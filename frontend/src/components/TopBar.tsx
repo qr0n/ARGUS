@@ -40,7 +40,7 @@ export function TopBar({ title, subtitle, onShowOnboarding }: { title: string, s
                         <span className="profile-access">{roleLabel}</span>
                     </div>
                 </div>
-                <button className="topbar-info-btn" onClick={signOut} title="Sign out">
+                <button className="topbar-info-btn" onClick={signOut} title="Sign out" style={{ whiteSpace: 'nowrap' }}>
                     <LogOut size={16} /> Sign out
                 </button>
             </div>

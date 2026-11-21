@@ -7,6 +7,8 @@ export function Dashboard() {
     const [alertsCount, setAlertsCount] = useState(0);
     const [datasetLength, setDatasetLength] = useState(0);
     const [datasetFiles, setDatasetFiles] = useState<string[]>([]);
+    // Real camera status from paired phones (see /api/devices).
+    const [cameras, setCameras] = useState<{ paired: number; online: number } | null>(null);
     const [activeCases, setActiveCases] = useState<{name: string, status: string, severity: string, filename: string}[]>([]);
     
     useEffect(() => {
@@ -36,6 +38,14 @@ export function Dashboard() {
                 setActiveCases(cases);
             })
             .catch(err => console.error("Failed to fetch dataset", err));
+
+        const loadCameras = () => fetch('/api/devices')
+            .then(res => (res.ok ? res.json() : Promise.reject(res.status)))
+            .then((list: { online: boolean }[]) => setCameras({ paired: list.length, online: list.filter(d => d.online).length }))
+            .catch(() => setCameras(null));
+        loadCameras();
+        const t = setInterval(loadCameras, 10000);
+        return () => clearInterval(t);
     }, []);
 
     const now = new Date();
@@ -71,21 +81,15 @@ export function Dashboard() {
                     <div className="stat-card">
                         <div className="stat-icon"><Camera color="var(--accent)" size={24} /></div>
                         <div className="stat-info">
-                            <span className="stat-value">1</span>
-                            <span className="stat-label">Active Cameras</span>
+                            <span className="stat-value">{cameras ? cameras.online : '–'}</span>
+                            <span className="stat-label">Cameras Streaming</span>
                         </div>
                     </div>
                     <div className="stat-card">
                         <div className="stat-icon"><CheckCircle2 color="var(--status-green)" size={24} /></div>
                         <div className="stat-info">
-                            <span className="stat-value">100%</span>
-                            <span className="stat-label">System Uptime</span>
-                        </div>
-                    </div>
-                    <div className="stat-card latency-card">
-                        <div className="stat-info">
-                            <span className="stat-label">Recognition Latency</span>
-                            <span className="stat-value mono latency-value">84ms</span>
+                            <span className="stat-value">{cameras ? cameras.paired : '–'}</span>
+                            <span className="stat-label">Paired Phones</span>
                         </div>
                     </div>
 
@@ -122,14 +126,18 @@ export function Dashboard() {
                     <div className="card system-modules-card">
                         <div className="card-header" style={{ marginBottom: '12px' }}>
                             <h4>System Modules</h4>
-                            <span className="badge badge-green">4 RUNNING</span>
+                            <span className={`badge ${cameras && cameras.online > 0 ? 'badge-green' : 'badge-amber'}`}>
+                                {cameras && cameras.online > 0 ? '4 ACTIVE' : '3 READY · NO STREAM'}
+                            </span>
                         </div>
                         <div className="modules-grid" style={{ marginBottom: '8px' }}>
                             <div className="module-item">
                                 <Camera className="module-icon" color="var(--accent)" size={24} />
                                 <div className="module-info">
                                     <span className="module-name">Live Camera</span>
-                                    <span className="module-status badge badge-green mono">ONLINE</span>
+                                    <span className={`module-status badge mono ${cameras && cameras.online > 0 ? 'badge-green' : 'badge-amber'}`}>
+                                        {cameras && cameras.online > 0 ? 'STREAMING' : 'NO STREAM'}
+                                    </span>
                                 </div>
                             </div>
                             <div className="module-item">

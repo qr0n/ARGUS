@@ -57,3 +57,19 @@
     color: var(--text-primary);
     font-size: 13px;
 }
+.log-col-time {
+    width: 190px;
+}
+
+.log-col-actor {
+    width: 220px;
+    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.log-row .log-col-actor {
+    color: var(--text-secondary);
+    font-size: 13px;
+}

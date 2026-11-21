@@ -1,5 +1,9 @@
+/* Cover the whole window regardless of the parent's (shrink-wrapped) size. */
 .auth-screen {
-    min-height: 100vh;
+    position: fixed;
+    inset: 0;
+    overflow-y: auto;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: center;

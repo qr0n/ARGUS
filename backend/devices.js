@@ -154,7 +154,7 @@ export function createDeviceRegistry(file) {
         save();
         const ws = sockets.get(id);
         if (ws) ws.close(4401, 'Device revoked');
-        return true;
+        return device;
     }
 
     function exists(id) {
