@@ -1,0 +1,44 @@
+# ARGUS vulnerability watch.
+# Checks every npm package and the infrastructure in security/inventory.json
+# against OSV.dev, CISA's Known Exploited Vulnerabilities catalog and Node.js
+# security releases, and opens a GitHub issue (label: vuln-watch) for each new
+# finding, with the fix. Standard GitHub-hosted runners are free for public repos.
+
+name: Vulnerability watch
+
+on:
+  schedule:
+    - cron: '17 6,18 * * *'   # twice a day, 06:17 and 18:17 UTC
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - '**/package-lock.json'
+      - 'security/**'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: vuln-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Actions pinned to full commit SHAs (tags can be moved; SHAs cannot).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Check dependencies and infrastructure against live vulnerability feeds
+        run: node security/vuln-watch/watch.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

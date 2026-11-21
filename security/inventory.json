@@ -1,0 +1,20 @@
+{
+  "_comment": "What ARGUS runs on, for the vulnerability watch. npm packages are read from the lockfiles automatically; list everything else here. 'kev' is a case-insensitive regex matched against CISA KEV vendor + product. Keep versions current when infrastructure changes.",
+  "lockfiles": [
+    { "app": "backend", "path": "backend/package-lock.json" },
+    { "app": "frontend", "path": "frontend/package-lock.json" }
+  ],
+  "node": { "version": "24.11.1", "where": "Backend runtime and build tooling" },
+  "kevLookbackDays": 14,
+  "components": [
+    { "name": "Node.js", "version": "24.11.1", "where": "Backend runtime", "kev": "node\\.?js" },
+    { "name": "OpenSSL", "version": "bundled with Node.js", "where": "TLS for the backend", "kev": "openssl" },
+    { "name": "Linux server (planned: Ubuntu)", "version": "not deployed yet", "where": "Future production host", "kev": "ubuntu|canonical|linux kernel" },
+    { "name": "nginx (planned reverse proxy)", "version": "not deployed yet", "where": "Future TLS termination and static hosting", "kev": "nginx" },
+    { "name": "Chrome / Chromium-based browsers", "version": "operator devices", "where": "Dashboard users and Android phone cameras", "kev": "chrom" },
+    { "name": "Apple iOS / Safari (WebKit)", "version": "phone cameras", "where": "Paired iPhone cameras", "kev": "webkit|apple.*(ios|ipados|safari|multiple products)" },
+    { "name": "Android", "version": "phone cameras", "where": "Paired Android phone cameras", "kev": "android" },
+    { "name": "Microsoft Windows", "version": "developer and operator machines", "where": "Machines that hold keys, .env files and face photos", "kev": "microsoft.*windows|win32k" },
+    { "name": "GitHub / Git", "version": "source hosting", "where": "Repository and CI", "kev": "github|\\bgit\\b" }
+  ]
+}
