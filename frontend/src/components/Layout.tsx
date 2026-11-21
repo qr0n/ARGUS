@@ -10,7 +10,7 @@ const pageInfo: Record<string, { title: string, subtitle: string }> = {
     '/live-camera': { title: 'Live Camera', subtitle: 'Real-time feed analysis' },
     '/activity-log': { title: 'System Activity Log', subtitle: 'Audit trail of recent events' },
     '/case-profiles': { title: 'Case Profiles', subtitle: 'Manage investigative profiles' },
-    '/ai-aging': { title: 'AI Aging Detection', subtitle: 'Simulate suspect aging progressions' },
+    '/ai-aging': { title: 'AI Aging Detection', subtitle: 'Age-progress photos of long-term missing persons' },
 };
 
 export function Layout({ onShowOnboarding }: { onShowOnboarding: () => void }) {

@@ -18,9 +18,12 @@ The end users of ARGUS are primarily security personnel, system operators, and i
 
 ## Target Audience
 The target audience or core customer base for ARGUS includes:
-- **Law Enforcement & Investigators:** For matching suspects against databases, especially using the AI aging feature to track individuals over time.
-- **Security Teams (Corporate & Private):** For real-time premises monitoring, identifying authorized personnel vs. unknown individuals using continuity cameras.
-- **Event Organizers:** For managing access control and monitoring crowd safety.
+- **Missing-persons work:** Agencies, families' representatives and care providers searching for missing or vulnerable people, using photos supplied with consent and the AI aging feature for long-term cases.
+- **Private-sector safety teams:** Venues, hotels, campuses, hospitals and similar sites that need missing-person search and, on the roadmap, safety-event detection (weapons, altercations, intrusion).
+- **Event Organizers:** For finding lost attendees and monitoring crowd safety.
+
+## Out of scope
+ARGUS does not support "wanted person" or suspect watchlists, and does not infer threat, intent or emotion from faces or appearance. Face matching is used only for enrolled missing-person cases with a recorded consent or legal basis, and every match is verified by a person before anyone acts on it.
 
 ## Impact
 By providing an accessible, web-based platform that utilizes powerful WebSockets and AI models (like Face-API), ARGUS significantly lowers the barrier to entry for advanced surveillance and biometric analysis. 

@@ -23,7 +23,7 @@ export function OnboardingOverlay({ onDismiss }: { onDismiss: () => void }) {
                         <div className="step-node"><Search size={16} /></div>
                         <div className="step-content">
                             <h4>2. Find Matches</h4>
-                            <p>Upload an image of a missing or wanted suspect. The system will compare against the database and return similarity matches with confidence scores.</p>
+                            <p>Upload an image of a missing person. The system will compare against the database and return similarity matches with confidence scores.</p>
                         </div>
                     </div>
                     <div className="timeline-step">
